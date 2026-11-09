@@ -130,6 +130,9 @@ export function describe(
  */
 export type GiteaBackendMembers = 'id' | ProvidedCapability<typeof GITEA_CAPABILITY_REGISTER>
 
+/** 成员名字映射回契约签名：工厂的返回类型用它，写错参数或返回类型当场编译红（gitlab 房同款两步）。 */
+export type GiteaBackendShape = { [K in GiteaBackendMembers]: Tracker[K] }
+
 /**
  * 从 git 远端地址里解析 owner/name（定位口 getRepoKey 的实现）。
  *
@@ -156,10 +159,10 @@ function repoKeyFromRemoteUrl(url: string): { owner: string; name: string } | nu
 /**
  * 创建 Gitea 后端适配器（票 #3 口径：探活 + 三个定位口；其余操作由注册表补桩）。
  *
- * 返回类型按登记数据推出（见 GiteaBackendMembers），多交、少交都编译红；
+ * 返回类型按登记数据推出（见 GiteaBackendShape），多交、少交都编译红；
  * 没实现的那些操作不在这里出现，调用方拿到的会是注册表的规范 unsupported 桩。
  */
-export function createGiteaBackend(ctx: BackendContext): GiteaBackendMembers {
+export function createGiteaBackend(ctx: BackendContext): GiteaBackendShape {
   return {
     id: 'gitea',
     describe: (handle: RepoHandle | Partial<RepositoryRef> | null | undefined) => describe(handle, 'gitea'),
