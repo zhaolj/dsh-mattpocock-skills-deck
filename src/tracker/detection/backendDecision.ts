@@ -192,7 +192,7 @@ export type SelectionSource = Selection['source'];
  * 后两者长得像、意思相反：undetermined 是“没查清”，no-backend 是“查清了，确实没有”。
  * 对外交出去的五个字段不含这一格，它是给排查与将来界面的。
  */
-export type DecisionState = 'decided' | 'undetermined' | 'no-backend'
+export type DecisionState = 'decided' | 'undetermined' | 'no-backend' | 'prose-tracker-unsupported'
 
 /**
  * 一条证据步骤：这一层看了什么、这一步的结论是什么、花了多久、为什么还要往下走。
@@ -458,6 +458,15 @@ const DECISION_GAPS: Record<string, { looked: string[]; missing: string; fix: st
     fix: '装上那个后端，或者把声明文件里的标题改成已装的后端',
     text: '声明文件里写明的后端「{detail}」没有装上：装上它，或者改这一行标题，就能定下来。',
   },
+  // 票 #5：声明文件标题写了一个插件未收录的后端名、正文又看得出一份 prose 工作流约定。
+  // 这一档与「declaration-unknown-backend」的差别在下一步：这里不催人换后端，而是告诉他
+  // 可以照锚文件自己的 prose 约定手工操作，或者到插件仓库请求把那个后端收录进来。
+  'declaration-prose-unsupported': {
+    looked: ['声明文件 docs/agents/issue-tracker.md', '各房自己的认领（matches）'],
+    missing: '声明文件写明的后端「{detail}」这个插件没有收录',
+    fix: '照锚文件里的 prose 约定手工管理工单，或者到插件仓库请求收录「{detail}」',
+    text: '声明文件写明的后端「{detail}」这个插件没有收录，无法直接接管工单。你可以照 docs/agents/issue-tracker.md 里的 prose 约定手工操作工单，或者到插件仓库请求收录这个后端。',
+  },
   'autodetect-error': {
     looked: ['各房自己的认领（matches）'],
     missing: '认领这一步抛错了，这一层没拿到结论',
@@ -638,6 +647,8 @@ export function gapOfEvidence(evidence: readonly TierEvidence[], pendingOnly = f
   if (file && file.reason === 'file-read-failed') return decisionGapOf('file-read-failed');
   if (file && (file.outcome === 'unreadable' || file.outcome === 'error')) return decisionGapOf('file-unreadable');
   if (file && file.reason === 'file-layer-unavailable') return decisionGapOf('layer-unavailable');
+  // 票 #5：prose 工作流的档位要在通用「未知后端」之前判——同一 outcome，两种下一步，不能混一档。
+  if (decl && decl.outcome === 'unknown-backend' && decl.reason === 'declaration-prose-unsupported') return decisionGapOf('declaration-prose-unsupported', decl.backendId);
   if (decl && decl.outcome === 'unknown-backend') return decisionGapOf('declaration-unknown-backend', decl.backendId);
   if (decl && decl.reason === 'declaration-read-failed') return decisionGapOf('declaration-read-failed');
   if (decl && (decl.outcome === 'error' || decl.outcome === 'unreadable')) return decisionGapOf('declaration-unreadable');
@@ -684,7 +695,16 @@ export function synthesize(report: EvidenceReport): DecisionSynthesis {
   const nothingThere = cleanMiss(get('workspace-file'), ['file-missing', 'file-no-backend'])
     && cleanMiss(get('declaration'), ['declaration-missing', 'declaration-no-backend'])
     && cleanMiss(claim, ['matches-no-claim']);
-  const state: DecisionState = pendingOnly ? 'undetermined' : (nothingThere ? 'no-backend' : 'undetermined');
+  // 票 #5：声明层认出了「标题声明未收录后端 + prose 工作流」，其余两层都干净地说没有——
+  // 这时给独立的第四态，不再落进裸的 no-backend：两者对人的下一步完全不同（prose 自定义
+  // 路径或请求收录 vs 什么都不用做）。「查清了确实没有」的判据仍然要求各房真问过（cleanMiss）。
+  const proseUnsupported = (() => {
+    const declRow = get('declaration');
+    return !!declRow && declRow.kind === 'unavailable' && declRow.reason === 'declaration-prose-unsupported'
+      && cleanMiss(get('workspace-file'), ['file-missing', 'file-no-backend'])
+      && cleanMiss(claim, ['matches-no-claim']);
+  })();
+  const state: DecisionState = pendingOnly ? 'undetermined' : proseUnsupported ? 'prose-tracker-unsupported' : (nothingThere ? 'no-backend' : 'undetermined');
   const gap = gapOfEvidence(evidence, pendingOnly);
   // 对外五个字段里的 reason 保持 #1003 期的取值不变（调用方认这个字面量）；
   // 「这次到底问没问过各房」由 state 与 gap 如实表达，不挤进 reason。
@@ -695,7 +715,7 @@ export function synthesize(report: EvidenceReport): DecisionSynthesis {
     verdict: null,
     selection: selection,
     canWrite: false,
-    reason: pendingOnly ? 'pending' : 'no-backend',
+    reason: pendingOnly ? 'pending' : proseUnsupported ? 'prose-tracker-unsupported' : 'no-backend',
     state: state,
     gap: gap,
     conflict: conflict,
@@ -824,6 +844,11 @@ async function collectEvidence(cwd: string, deps: DecideBackendDeps, scope: Evid
   if (declRead.outcome === 'hit') {
     if (isKnown(registry, declRead.id)) declEvidence = verdictEvidence('declaration', declRead.id, declRead.reason, { declarationConfidence: declRead.confidence || 'high' });
     else declEvidence = unavailableEvidence('declaration', 'unknown-backend', 'declaration-backend-unknown', declRead.id);
+  } else if (declRead.outcome === 'unknown-backend') {
+    // 票 #5：声明读法认出了「标题声明未收录后端 + prose 工作流」。记成 unavailable 而不是 abstain，
+    // 名字留在 backendId 里供档位文案用；与「声明了已收录但没装上」共用 unknown-backend 这个 outcome，
+    // 区分靠 reason（declaration-prose-unsupported / declaration-backend-unknown）。
+    declEvidence = unavailableEvidence('declaration', 'unknown-backend', declRead.reason, declRead.id);
   } else if (declRead.outcome === 'error') {
     declEvidence = unavailableEvidence('declaration', 'error', declRead.reason);
   } else {
