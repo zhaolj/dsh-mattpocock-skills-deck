@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-06T14:05:45.934Z",
+  "generatedAt": "2026-11-09T20:46:26.580Z",
   "generatedBy": "node scripts/gate-map.mts",
   "chainLength": 600,
   "gateCount": 600,
@@ -10,7 +10,7 @@
   "completionRecordedGates": 143,
   "smokeLength": 8,
   "smokeCompletionRecordedGates": 5,
-  "graphFileCount": 962,
+  "graphFileCount": 970,
   "gates": [
     {
       "step": "node tests/verify-1207-splice-ts.ts",
@@ -10102,6 +10102,7 @@
       "guards": [
         "docs/tracker",
         "src/tracker/contract/capability-answer.ts",
+        "src/tracker/rooms/gitea/support/capability-register.ts",
         "src/tracker/rooms/github/support/capability-register.ts",
         "src/tracker/rooms/gitlab/support/capability-register.ts",
         "src/tracker/rooms/markdown/capability-register.ts"
@@ -10109,6 +10110,7 @@
       "dirs": [
         "docs/tracker",
         "src/tracker/contract",
+        "src/tracker/rooms/gitea/support",
         "src/tracker/rooms/github/support",
         "src/tracker/rooms/gitlab/support",
         "src/tracker/rooms/markdown"
@@ -10117,7 +10119,7 @@
       "buildOutputOnly": false,
       "completionRecord": false,
       "expectedAssertions": 0,
-      "reason": "归属来自 文件头 // 门禁归属: 注释（共 5 条）"
+      "reason": "归属来自 文件头 // 门禁归属: 注释（共 6 条）"
     },
     {
       "step": "node tests/verify-capsule-layout.ts",
@@ -10614,7 +10616,7 @@
       "buildOutputOnly": false,
       "completionRecord": false,
       "expectedAssertions": 0,
-      "reason": "归属来自：读文件调用（readFileSync / readFile / path.join(ROOT, ...)） 1 条；载入模块（require / import / pathToFileURL） 1 条；源码里的路径字面量 5 条"
+      "reason": "归属来自：读文件调用（readFileSync / readFile / path.join(ROOT, ...)） 1 条；源码里的路径字面量 6 条"
     },
     {
       "step": "node tests/verify-error-single-source.ts",
@@ -13445,10 +13447,13 @@
         "examples/demo-mini/index.ts",
         "examples/demo-mini/matches.ts",
         "src/tracker/registry/core.ts",
+        "src/tracker/rooms/gitea/errors.ts",
+        "src/tracker/rooms/gitea/model/normalize.ts",
         "src/tracker/rooms/github/model/normalize.ts",
         "src/tracker/rooms/gitlab/model/normalize.ts",
         "tests/tracker-contract/fixtures/compliant.ts",
         "tests/tracker-contract/fixtures/demo.ts",
+        "tests/tracker-contract/fixtures/gitea.ts",
         "tests/tracker-contract/fixtures/gitlab.ts",
         "tests/tracker-contract/fixtures/violating.ts",
         "tests/tracker-contract/harness.ts",
@@ -13471,6 +13476,8 @@
         "examples/demo-mini",
         "examples/demo-mini/fixtures/demo-real",
         "src/tracker/registry",
+        "src/tracker/rooms/gitea",
+        "src/tracker/rooms/gitea/model",
         "src/tracker/rooms/github/model",
         "src/tracker/rooms/gitlab/model",
         "tests/tracker-contract",
@@ -13482,7 +13489,7 @@
       "buildOutputOnly": false,
       "completionRecord": false,
       "expectedAssertions": 0,
-      "reason": "归属来自：载入模块（require / import / pathToFileURL） 6 条；静态 import 说明符 19 条；源码里的路径字面量 1 条"
+      "reason": "归属来自：载入模块（require / import / pathToFileURL） 8 条；静态 import 说明符 20 条；源码里的路径字面量 1 条"
     },
     {
       "step": "node tests/verify-tracker-session.ts",
@@ -15949,6 +15956,15 @@
       "node tests/verify-error-rule-samples.ts",
       "node tests/verify-prompts.ts"
     ],
+    "src/tracker/rooms/gitea": [
+      "node tests/verify-tracker-contract.ts"
+    ],
+    "src/tracker/rooms/gitea/model": [
+      "node tests/verify-tracker-contract.ts"
+    ],
+    "src/tracker/rooms/gitea/support": [
+      "node tests/verify-capability-register.ts"
+    ],
     "src/tracker/rooms/github": [
       "node tests/verify-no-mixed-session.ts",
       "node tests/verify-1242-panel-numbers.ts",
@@ -16587,12 +16603,12 @@
   },
   "coverage": {
     "sourceRoot": "src",
-    "fileCount": 985,
-    "dirCount": 101,
-    "coveredFileCount": 985,
+    "fileCount": 993,
+    "dirCount": 105,
+    "coveredFileCount": 993,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
-    "dedicatedDirCount": 80,
+    "dedicatedDirCount": 83,
     "guardedFiles": [
       "src/client/floating/Pop.ts",
       "src/client/floating/SkillFloatList.ts",
@@ -17369,6 +17385,14 @@
       "src/tracker/registry/shape.ts",
       "src/tracker/registry/views.ts",
       "src/tracker/rooms/README.md",
+      "src/tracker/rooms/gitea/errors.ts",
+      "src/tracker/rooms/gitea/index.ts",
+      "src/tracker/rooms/gitea/model/description-markers.ts",
+      "src/tracker/rooms/gitea/model/normalize.ts",
+      "src/tracker/rooms/gitea/preflight.ts",
+      "src/tracker/rooms/gitea/room/links.ts",
+      "src/tracker/rooms/gitea/room/prompts.ts",
+      "src/tracker/rooms/gitea/support/capability-register.ts",
       "src/tracker/rooms/github/channels/graphql/comment-paging.ts",
       "src/tracker/rooms/github/channels/graphql/index.ts",
       "src/tracker/rooms/github/channels/graphql/queries.ts",
@@ -17650,6 +17674,10 @@
       "src/tracker/kernel",
       "src/tracker/registry",
       "src/tracker/rooms",
+      "src/tracker/rooms/gitea",
+      "src/tracker/rooms/gitea/model",
+      "src/tracker/rooms/gitea/room",
+      "src/tracker/rooms/gitea/support",
       "src/tracker/rooms/github",
       "src/tracker/rooms/github/channels",
       "src/tracker/rooms/github/channels/graphql",
@@ -17738,6 +17766,9 @@
       "src/tracker/kernel",
       "src/tracker/registry",
       "src/tracker/rooms",
+      "src/tracker/rooms/gitea",
+      "src/tracker/rooms/gitea/model",
+      "src/tracker/rooms/gitea/support",
       "src/tracker/rooms/github",
       "src/tracker/rooms/github/channels/graphql",
       "src/tracker/rooms/github/channels/rest",
@@ -17825,6 +17856,10 @@
       {
         "path": "src/shared/time-config",
         "fileCount": 4
+      },
+      {
+        "path": "src/tracker/rooms/gitea/room",
+        "fileCount": 2
       },
       {
         "path": "src/tracker/rooms/github/channels",
