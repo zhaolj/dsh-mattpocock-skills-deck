@@ -12,6 +12,7 @@
 //  - 契约 §2 capability-by-fill：解析只产「有/无」二分，不产能力表。
 //
 // #2 Gitea/Forgejo 注册（标题优先口径与上面三个词一致）：标题 gitea/forgejo 判 high，互斥顺序 gitlab > gitea > markdown > github；
+// 注意：这套顺序只管「标题里同时出现多个后端名时，解析器按谁拿 high 收敛」，与 backendDecision.ts 的 MULTI_CLAIM_ORDER（多房同时认领时的裁剪顺序）是两套各管各的顺序，不要混为一谈。
 // 正文关键词 gitea/forgejo/tea 走 low 兜底（explicitBackendId 交 'gitea'，与标题同一间房）。
 //
 // 修复 #277（标题优先 + markdown 仅看标题行）：
@@ -86,10 +87,6 @@ export function parseIssueTracker(raw: unknown): ParsedIssueTracker {
   return { explicitBackendId: null, rawHint: '', confidence: 'none', reason: 'no-keyword' }
 }
 
-/**
- * 小工具：对已读文本判空并去 BOM（与 host normalizeBody 互补）。
- * 入参收成未知值：空值统一按空串处理，不抛异常。
- */
 // ── 票 #5：prose 工作流的判别（未知后端声明 + 可辨识工作流结构 → prose-tracker-unsupported）──
 // 这两个纯函数只负责「认得出」：标题里声明了一个插件未收录的后端名，正文里看得出一份
 // prose 工作流约定。要不要判成独立状态由判定层（backendDecision）决定；这里不引用注册表，

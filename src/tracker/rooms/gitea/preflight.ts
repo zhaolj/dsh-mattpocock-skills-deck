@@ -84,7 +84,7 @@ export async function teaPreflight(
     if (loginRes.code !== 0) {
       const out = String(loginRes.stdout || '') + '\n' + String(loginRes.stderr || '')
       const verdict = classifyGiteaError(loginRes, ctx || undefined)
-      const message = verdict.fallback ? out.trim().slice(0, 500) || 'tea login list failed' : out.trim().slice(0, 500) || 'tea login list failed'
+      const message = out.trim().slice(0, 500) || 'tea login list failed'
       return fail(verdict.kind, message, out)
     }
     // tea 的 login list 没有登录项时退出码是 0、输出为空：有工具没凭据，归 AUTH 而不是算通过。

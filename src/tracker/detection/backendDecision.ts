@@ -322,6 +322,7 @@ export interface DecidePureInput {
  * 名单里没有的房间排在这四家之后（保持它们自己的相对次序）。这条顺序必须与
  * src/tracker/registry/builtins.ts 的 BUILTIN_ROOM_IDS 逐位一致，且由 tests/verify-detection-evidence.ts
  * 的 D 节钉住，改这里必须同时改那两处。
+ * 注意：这套顺序只管「多个后端同时认领时按谁裁剪留下谁」，与 issue-tracker-declaration.ts 解析器里的标题互斥顺序（标题声明多个后端名时谁拿 high）是两套各管各的顺序，不要混为一谈。
  */
 export const MULTI_CLAIM_ORDER: readonly string[] = ['github', 'markdown', 'gitlab', 'gitea'];
 
