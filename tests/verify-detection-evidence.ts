@@ -12,7 +12,7 @@
  *    这正是本次讨论发现的缺陷：从前「没看成 / 没问成」与「问过没人认领」会写成同一句话。
  *  C 一次读取、一份结论：声明文件只读一次，且与探测器、工具壳共用 parseIssueTracker
  *    （出口原来自带那套只看标题、优先级还相反，已删）。
- *  D 多命中按明文顺序裁剪：MULTI_CLAIM_ORDER（GitHub > Markdown > GitLab）与装配顺序一致。
+ *  D 多命中按明文顺序裁剪：MULTI_CLAIM_ORDER（GitHub > Markdown > GitLab > Gitea）与装配顺序一致。
  *  E 证据矛盾带出来：「我选的」（工作区文件）与「项目里写的」（声明文件）不一致时，结论仍按顺序取，
  *    但矛盾进结果与日志，不静默吞掉。
  *  F 日志分层：平时一条结论（常驻事件 detection.detect，含来源、三态、档位、覆盖度、耗时、矛盾）；
@@ -277,6 +277,22 @@ async function main(): Promise<void> {
 
     // 声明文件里写了好几行标题：结论必须与 parseIssueTracker 一模一样（出口不再自带第二套优先级）。
     const multi = '# Issue tracker: GitLab\n# Issue tracker: GitHub\n# Issue tracker: Markdown\n'
+
+    // Gitea/Forgejo 标题（#2）：两个词同判 gitea 高置信，互斥顺序排在 gitlab 之后、markdown 之前。
+    const parsedGitea = parseIssueTracker('# Issue tracker: Gitea\n')
+    ok(parsedGitea.explicitBackendId === 'gitea' && parsedGitea.confidence === 'high' && parsedGitea.reason === 'title-gitea',
+      'Gitea 标题判 gitea 高置信（reason 是 title-gitea）', JSON.stringify(parsedGitea))
+    const parsedForgejo = parseIssueTracker('# Issue tracker: Forgejo\n')
+    ok(parsedForgejo.explicitBackendId === 'gitea' && parsedForgejo.confidence === 'high',
+      'Forgejo 标题同判 gitea（两个词指同一家软件）', JSON.stringify(parsedForgejo))
+    ok(parseIssueTracker('# Issue tracker: GitLab\n# Issue tracker: Gitea\n').explicitBackendId === 'gitlab',
+      'Gitea 与 GitLab 标题同现取 GitLab（互斥顺序 gitlab 在前）')
+    ok(parseIssueTracker('# Issue tracker: Gitea\n# Issue tracker: Markdown\n').explicitBackendId === 'gitea',
+      'Gitea 与 Markdown 标题同现取 Gitea（互斥顺序 gitea 在 markdown 之前）')
+    const teaBody = '票记在 gitea 上，用 tea 命令读写。\n'
+    const parsedTeaBody = parseIssueTracker(teaBody)
+    ok(parsedTeaBody.explicitBackendId === 'gitea' && parsedTeaBody.confidence === 'low' && parsedTeaBody.reason === 'keyword-gitea',
+      '正文提到 gitea/tea 只给低置信证据（explicitBackendId 是 gitea、reason 是 keyword-gitea）', JSON.stringify(parsedTeaBody))
     const f2 = fakeFs({ [DECL]: multi })
     const r2 = await decideBackend(CWD, { fs: f2.fs, registry: fakeRegistry(['github', 'gitlab', 'markdown']), skipAutodetect: true })
     const parsed = parseIssueTracker(multi)
@@ -323,10 +339,12 @@ async function main(): Promise<void> {
       JSON.stringify({ outlet: r4b.backendId, state: r4b.state, gap: r4b.gap ? r4b.gap.id : null }))
   }
 
-  title('D 多命中按明文顺序裁剪（GitHub > Markdown > GitLab）')
+  title('D 多命中按明文顺序裁剪（GitHub > Markdown > GitLab > Gitea）')
   {
-    ok(JSON.stringify(MULTI_CLAIM_ORDER) === JSON.stringify(['github', 'markdown', 'gitlab']),
-      '明文顺序常量就是 GitHub > Markdown > GitLab', JSON.stringify(MULTI_CLAIM_ORDER))
+    ok(JSON.stringify(MULTI_CLAIM_ORDER) === JSON.stringify(['github', 'markdown', 'gitlab', 'gitea']),
+      '明文顺序常量就是 GitHub > Markdown > GitLab > Gitea', JSON.stringify(MULTI_CLAIM_ORDER))
+    ok(JSON.stringify(orderClaims(['gitea', 'markdown'])) === JSON.stringify(['markdown', 'gitea']),
+      'gitea 参与排序时仍在 markdown 之后（#2 追加的第四家）')
     ok(JSON.stringify(orderClaims(['gitlab', 'markdown', 'github'])) === JSON.stringify(['github', 'markdown', 'gitlab']),
       '倒着给的名单按明文顺序排好')
     ok(JSON.stringify(orderClaims(['gitlab', 'scratch', 'github'])) === JSON.stringify(['github', 'gitlab', 'scratch']),
@@ -347,8 +365,8 @@ async function main(): Promise<void> {
     // 不是看 import 文本出现的位置——两件事今天碰巧同序，改起来却可以不一致（#1048 复核指出上一版只看了位置）。
     const assembly = readAssembly()
     const order = registerOrderOf(assembly)
-    ok(JSON.stringify(order) === JSON.stringify(['github', 'markdown', 'gitlab']),
-      '装配处三个后端是按 github → markdown → gitlab 注册的（读真的注册调用）', JSON.stringify(order))
+    ok(JSON.stringify(order) === JSON.stringify(['github', 'markdown', 'gitlab', 'gitea']),
+      '装配处四个后端是按 github → markdown → gitlab → gitea 注册的（读真的注册调用）', JSON.stringify(order))
     ok(JSON.stringify(order) === JSON.stringify(MULTI_CLAIM_ORDER),
       '装配顺序与明文裁剪顺序逐位一致：改一处就得同时改另一处',
       JSON.stringify({ 装配: order, 明文: MULTI_CLAIM_ORDER }))

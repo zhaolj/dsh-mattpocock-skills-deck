@@ -11,6 +11,9 @@
 //    I/O 由调用方经 platform.fs 完成。
 //  - 契约 §2 capability-by-fill：解析只产「有/无」二分，不产能力表。
 //
+// #2 Gitea/Forgejo 注册（标题优先口径与上面三个词一致）：标题 gitea/forgejo 判 high，互斥顺序 gitlab > gitea > markdown > github；
+// 正文关键词 gitea/forgejo/tea 走 low 兜底（explicitBackendId 交 'gitea'，与标题同一间房）。
+//
 // 修复 #277（标题优先 + markdown 仅看标题行）：
 //  - 标题三者先互斥按 gitlab > markdown > github 收敛并以 high 返回，彻底阻断正文 markdown/.scratch 抢先
 //  - 正文关键词仅 low 兜底，且 markdown 正文不参与判定（正文含 markdown/.scratch 不再误切 markdown）
@@ -41,11 +44,17 @@ export function parseIssueTracker(raw: unknown): ParsedIssueTracker {
   // 显式标题形态 `# Issue tracker: GitHub` 为 high 置信 — 仅标题行参与 high 判定
   const titleGithub = /^#\s*issue\s*tracker\s*:\s*github/im.test(text)
   const titleGitlab = /^#\s*issue\s*tracker\s*:\s*gitlab/im.test(text)
+  // #2 Gitea/Forgejo：两个词指同一家软件（Forgejo 是 Gitea 的分支），标题同判 gitea 高置信；
+  // 互斥顺序按既有语义排在 gitlab 之后、markdown 之前（改这行就得同时看 verify-detection-cascade 与 evidence 两扇门禁）。
+  const titleGitea = /^#\s*issue\s*tracker\s*:\s*(gitea|forgejo)/im.test(text)
   const titleMarkdown = /^#\s*issue\s*tracker\s*:\s*(markdown|local)/im.test(text)
 
   // ── 第一阶段：标题优先（高置信），优先级 gitlab > markdown > github ──
   if (titleGitlab) {
     return { explicitBackendId: 'gitlab', rawHint: 'gitlab', confidence: 'high', reason: 'title-gitlab' }
+  }
+  if (titleGitea) {
+    return { explicitBackendId: 'gitea', rawHint: 'gitea', confidence: 'high', reason: 'title-gitea' }
   }
   if (titleMarkdown) {
     return { explicitBackendId: 'markdown', rawHint: 'markdown', confidence: 'high', reason: 'title-markdown' }
@@ -61,6 +70,12 @@ export function parseIssueTracker(raw: unknown): ParsedIssueTracker {
   const hasGitlab = /gitlab/i.test(text)
   if (hasGitlab) {
     return { explicitBackendId: 'gitlab', rawHint: 'gitlab', confidence: 'low', reason: 'keyword-gitlab' }
+  }
+  // #2 正文 low 兜底：gitea / forgejo / tea 三个词都指同一家，排在 gitlab 之后、github 之前
+  //（tea 只认独立词，避免误伤正文里恰好含 tea 字样的其他内容）。
+  const hasGitea = /gitea|forgejo|\btea\b/i.test(text)
+  if (hasGitea) {
+    return { explicitBackendId: 'gitea', rawHint: 'gitea', confidence: 'low', reason: 'keyword-gitea' }
   }
   const hasGithub = /github/i.test(text)
   if (hasGithub) {

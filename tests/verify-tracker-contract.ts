@@ -44,6 +44,7 @@ import compliant from './tracker-contract/fixtures/compliant.js'
 import violating from './tracker-contract/fixtures/violating.js'
 import { gitlabFreeFixture, gitlabPremiumFixture } from './tracker-contract/fixtures/gitlab.js'
 import { demoFixture } from './tracker-contract/fixtures/demo.js'
+import { giteaMinimalFixture } from './tracker-contract/fixtures/gitea.js'
 import { runPlayback } from './tracker-contract/runner/index.js'
 import contractSection from './tracker-contract/sections/contract.js'
 import registrySection from './tracker-contract/sections/registry.js'
@@ -141,6 +142,18 @@ try {
   results.push({ name: 'gitlab · parentKey null without marker', ok: orphanOk, detail: orphanOk ? '' : 'got=' + orphanIssue.parentKey })
 } catch (e) {
   results.push({ name: 'gitlab-adapter · import-failed', ok: false, detail: String(e && e.message || e) })
+}
+
+// #2：gitea 最小适配器走同一套 G4 契约（起步口径：EMPTY/MISSING 分流见 fixture 注释）
+try {
+  results.push(...runContractTests(giteaMinimalFixture))
+  // 额外：单 key 必须来自 index 且永不产 number 字段（tea 回包口径，harness 已含，此处二次显式）
+  const { normalizeIssue: normGitea } = await import('../src/tracker/rooms/gitea/model/normalize.js')
+  const gi = normGitea({ index: 7, title: 't', state: 'closed', closed_at: '2024-02-01T00:00:00Z' })
+  const giteaKeyOk = gi.key === '7' && !('number' in gi) && gi.state === 'closed' && gi.closedAt === '2024-02-01T00:00:00Z'
+  results.push({ name: 'gitea-minimal · key from index + no legacy fields', ok: giteaKeyOk, detail: giteaKeyOk ? '' : 'key=' + gi.key + ' number=' + ('number' in gi) + ' state=' + gi.state })
+} catch (e) {
+  results.push({ name: 'gitea-minimal · import-failed', ok: false, detail: String(e && e.message || e) })
 }
 
 // #148：demo-mini 强验证 — runContractTests 已在 results 头部完成，此处追加 runPlayback 织入（离线采样固件）
@@ -289,16 +302,18 @@ const missingExpectedFailures = VIOLATING_EXPECTED_FAILURES.filter((n) => !viola
 const caughtViolation = missingExpectedFailures.length === 0
 const githubOk = results.filter((r) => r.name.startsWith('github-adapter') && !r.ok).length === 0
 const gitlabOk = results.filter((r) => r.name.startsWith('gitlab-') && !r.ok).length === 0
+const giteaOk = results.filter((r) => r.name.startsWith('gitea-minimal') && !r.ok).length === 0
 const demoOk = results.filter((r) => r.name.startsWith('demo-mini') && !r.ok).length === 0
 const demoPlaybackOk = results.filter((r) => r.name.startsWith('demo-playback') && !r.ok).length === 0
-const sectionsOk = results.filter((r) => !r.name.startsWith(compliant.name) && !r.name.startsWith(violating.name) && !r.name.startsWith('github-adapter') && !r.name.startsWith('gitlab-') && !r.name.startsWith('demo-mini') && !r.name.startsWith('demo-playback') && !r.ok).length === 0
+const sectionsOk = results.filter((r) => !r.name.startsWith(compliant.name) && !r.name.startsWith(violating.name) && !r.name.startsWith('github-adapter') && !r.name.startsWith('gitlab-') && !r.name.startsWith('gitea-minimal') && !r.name.startsWith('demo-mini') && !r.name.startsWith('demo-playback') && !r.ok).length === 0
 const prShapeOk = results.filter((r) => (r.name.startsWith('pr-shape-capable') || r.name.startsWith('pr-shape-omitting')) && !r.ok).length === 0
   && results.filter((r) => r.name.startsWith('pr-shape · ') && !r.ok).length === 0
-if (!(compliantOk && caughtViolation && githubOk && gitlabOk && demoOk && demoPlaybackOk && sectionsOk && prShapeOk)) {
+if (!(compliantOk && caughtViolation && githubOk && gitlabOk && giteaOk && demoOk && demoPlaybackOk && sectionsOk && prShapeOk)) {
   console.error('CONTRACT SKELETON NOT SELF-CONSISTENT')
   if (!caughtViolation) console.error('VIOLATING STUB DID NOT FAIL THE 4 EXPECTED CHECKS: ' + missingExpectedFailures.join('、'))
   if (!githubOk) console.error('GITHUB ADAPTER FAILED G4')
   if (!gitlabOk) console.error('GITLAB ADAPTER FAILED G4')
+  if (!giteaOk) console.error('GITEA ADAPTER FAILED G4 (#2)')
   if (!demoOk) console.error('DEMO-MINI ADAPTER FAILED G4')
   if (!demoPlaybackOk) console.error('DEMO PLAYBACK FAILED')
   if (!prShapeOk) console.error('PR SHAPE EXTENSION FAILED (#508)')
