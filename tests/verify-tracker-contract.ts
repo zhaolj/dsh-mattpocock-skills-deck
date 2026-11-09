@@ -44,7 +44,7 @@ import compliant from './tracker-contract/fixtures/compliant.js'
 import violating from './tracker-contract/fixtures/violating.js'
 import { gitlabFreeFixture, gitlabPremiumFixture } from './tracker-contract/fixtures/gitlab.js'
 import { demoFixture } from './tracker-contract/fixtures/demo.js'
-import { giteaMinimalFixture } from './tracker-contract/fixtures/gitea.js'
+import { giteaMinimalFixture, giteaMinimalHiddenFixture, giteaMinimalVisibleFixture } from './tracker-contract/fixtures/gitea.js'
 import { runPlayback } from './tracker-contract/runner/index.js'
 import contractSection from './tracker-contract/sections/contract.js'
 import registrySection from './tracker-contract/sections/registry.js'
@@ -144,14 +144,65 @@ try {
   results.push({ name: 'gitlab-adapter · import-failed', ok: false, detail: String(e && e.message || e) })
 }
 
-// #2：gitea 最小适配器走同一套 G4 契约（起步口径：EMPTY/MISSING 分流见 fixture 注释）
+// #3：gitea 适配器走同一套 G4 契约（完整化口径：EMPTY/MISSING 分流、阻塞双路径、错误三档见 fixture 注释）
 try {
   results.push(...runContractTests(giteaMinimalFixture))
-  // 额外：单 key 必须来自 index 且永不产 number 字段（tea 回包口径，harness 已含，此处二次显式）
+  results.push(...runContractTests(giteaMinimalHiddenFixture))
+  results.push(...runContractTests(giteaMinimalVisibleFixture))
   const { normalizeIssue: normGitea } = await import('../src/tracker/rooms/gitea/model/normalize.js')
+  // 额外：单 key 必须来自 index 且永不产 number 字段（tea 回包口径，harness 已含，此处二次显式）
   const gi = normGitea({ index: 7, title: 't', state: 'closed', closed_at: '2024-02-01T00:00:00Z' })
   const giteaKeyOk = gi.key === '7' && !('number' in gi) && gi.state === 'closed' && gi.closedAt === '2024-02-01T00:00:00Z'
   results.push({ name: 'gitea-minimal · key from index + no legacy fields', ok: giteaKeyOk, detail: giteaKeyOk ? '' : 'key=' + gi.key + ' number=' + ('number' in gi) + ' state=' + gi.state })
+  // parentKey 双路径：隐藏标记是第一判据，旧 `Part of #n` 可见行过渡期回退认；都没有时归 null。
+  const gParent = normGitea({ index: 10, title: 't', state: 'open', body: '<!-- DSH-PARENT: 7 -->\n\n正文' })
+  const gParentOk = gParent.parentKey === '7'
+  results.push({ name: 'gitea-minimal · parentKey from hidden marker', ok: gParentOk, detail: gParentOk ? '' : 'got=' + String(gParent.parentKey) })
+  const gLegacy = normGitea({ index: 12, title: 't', state: 'open', body: 'Part of #7\n\n正文' })
+  const gLegacyOk = gLegacy.parentKey === '7'
+  results.push({ name: 'gitea-minimal · parentKey legacy Part-of fallback', ok: gLegacyOk, detail: gLegacyOk ? '' : 'got=' + String(gLegacy.parentKey) })
+  const gOrphan = normGitea({ index: 11, title: 't', state: 'open', body: '普通正文' })
+  const gOrphanOk = gOrphan.parentKey === null
+  results.push({ name: 'gitea-minimal · parentKey null without marker', ok: gOrphanOk, detail: gOrphanOk ? '' : 'got=' + String(gOrphan.parentKey) })
+  // blockedBy 双写时隐藏机器表优先：正文同时有隐藏表与可见行，读到的是隐藏表那两条（title 带井号前缀）。
+  const gBoth = normGitea({ index: 13, title: 't', state: 'open', body: '<!-- DSH-BLOCKED-BY: 1, 2 -->\n\nBlocked by: #8, #9\n\n正文' })
+  const gBothOk = Array.isArray(gBoth.blockedBy) && gBoth.blockedBy.length === 2 && gBoth.blockedBy[0].key === '1' && gBoth.blockedBy[1].key === '2' && gBoth.blockedBy[0].title === '#1'
+  results.push({ name: 'gitea-minimal · blockedBy hidden preferred over visible', ok: gBothOk, detail: gBothOk ? '' : 'got=' + JSON.stringify(gBoth.blockedBy) })
+  // 可见行兜底：没有隐藏表时读可见行，title 保原文（不带井号前缀）。
+  const gVis = normGitea(giteaMinimalVisibleFixture.withData)
+  const gVisOk = Array.isArray(gVis.blockedBy) && gVis.blockedBy.length === 2 && gVis.blockedBy[0].key === '1' && gVis.blockedBy[0].title === '#1'
+  results.push({ name: 'gitea-minimal-visible · blockedBy visible fallback kept title', ok: gVisOk, detail: gVisOk ? '' : 'got=' + JSON.stringify(gVis.blockedBy) })
+  // 隐藏表夹具整票读回：parentKey 与 blockedBy 都来自文件头标记。
+  const gHid = normGitea(giteaMinimalHiddenFixture.withData)
+  const gHidOk = gHid.parentKey === '7' && Array.isArray(gHid.blockedBy) && gHid.blockedBy.length === 2
+  results.push({ name: 'gitea-minimal-hidden · parent and blocked-by from markers', ok: gHidOk, detail: gHidOk ? '' : 'parent=' + String(gHid.parentKey) + ' blockedBy=' + JSON.stringify(gHid.blockedBy) })
+  // milestone / author 分流：有→对象，无→省略（与 gitlab 房同一口径）。
+  const gMile = normGitea({ index: 5, title: 't', state: 'open', body: '', milestone: { title: 'M1', description: 'desc', state: 'active', due_on: '2024-02-01' } })
+  const gNoMile = normGitea({ index: 6, title: 't', state: 'open', body: '', milestone: null })
+  const gMileOk = !!gMile.milestone && gMile.milestone.name === 'M1' && gMile.milestone.dueOn === '2024-02-01' && gMile.milestone.state === 'open' && !('milestone' in gNoMile)
+  results.push({ name: 'gitea-minimal · milestone split (with vs omitted)', ok: gMileOk, detail: gMileOk ? '' : 'with=' + JSON.stringify(gMile.milestone) + ' empty has=' + ('milestone' in gNoMile) })
+  const gAuthor = normGitea({ index: 5, title: 't', state: 'open', body: '', author: { login: 'alice', full_name: 'Alice' } })
+  const gNoAuthor = normGitea({ index: 6, title: 't', state: 'open', body: '', author: null })
+  const gAuthorOk = !!gAuthor.author && gAuthor.author.login === 'alice' && gAuthor.author.name === 'Alice' && !('author' in gNoAuthor)
+  results.push({ name: 'gitea-minimal · author split (with vs omitted)', ok: gAuthorOk, detail: gAuthorOk ? '' : 'with=' + JSON.stringify(gAuthor.author) + ' empty has=' + ('author' in gNoAuthor) })
+  // 评论映射（notes 数组 → Comment）与评论总数（comments 数字段 → commentCount，不拿数组长度冒充）。
+  const gNotes = normGitea({ index: 5, title: 't', state: 'open', body: '', notes: [{ id: 3, author: { login: 'bob' }, body: 'n1', created_at: '2024-01-03T00:00:00Z', updated_at: '2024-01-03T00:00:00Z' }] })
+  const gNotesOk = Array.isArray(gNotes.comments) && gNotes.comments.length === 1 && gNotes.comments[0].body === 'n1' && gNotes.comments[0].author.login === 'bob'
+  results.push({ name: 'gitea-minimal · comments mapped from notes', ok: gNotesOk, detail: gNotesOk ? '' : 'got=' + JSON.stringify(gNotes.comments) })
+  const gCount = normGitea({ index: 5, title: 't', state: 'open', body: '', comments: 4 })
+  const gCountOk = gCount.commentCount === 4 && Array.isArray(gCount.comments) && gCount.comments.length === 0
+  results.push({ name: 'gitea-minimal · commentCount from numeric comments field', ok: gCountOk, detail: gCountOk ? '' : 'count=' + String(gCount.commentCount) })
+  // 错误三档：未登录（AUTH）、无仓库（NOT-FOUND）、网络失败（NETWORK 兜底）各断一次判档。
+  const { classifyGiteaError } = await import('../src/tracker/rooms/gitea/errors.js')
+  const errAuth = classifyGiteaError({ text: 'tea: no token found for gitea.example.com; run tea login add' })
+  const errAuthOk = errAuth.kind === 'auth' && !errAuth.fallback
+  results.push({ name: 'gitea-minimal · error not-logged-in classified auth', ok: errAuthOk, detail: errAuthOk ? '' : 'got=' + errAuth.kind + ' fallback=' + String(errAuth.fallback) })
+  const errRepo = classifyGiteaError({ text: '404 repository does not exist [see: https://gitea.example/api/swagger]' })
+  const errRepoOk = errRepo.kind === 'not-found' && !errRepo.fallback
+  results.push({ name: 'gitea-minimal · error repo-missing classified not-found', ok: errRepoOk, detail: errRepoOk ? '' : 'got=' + errRepo.kind + ' fallback=' + String(errRepo.fallback) })
+  const errNet = classifyGiteaError({ text: 'Get "https://gitea.example/api/v1/repos/o/r": dial tcp: lookup gitea.example: no such host' })
+  const errNetOk = errNet.kind === 'network'
+  results.push({ name: 'gitea-minimal · error network-failure classified network', ok: errNetOk, detail: errNetOk ? '' : 'got=' + errNet.kind + ' fallback=' + String(errNet.fallback) })
 } catch (e) {
   results.push({ name: 'gitea-minimal · import-failed', ok: false, detail: String(e && e.message || e) })
 }

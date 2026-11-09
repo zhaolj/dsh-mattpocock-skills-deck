@@ -1,23 +1,31 @@
 /**
- * src/tracker/rooms/gitea/model/normalize.ts — tea/Gitea 原始形状 → 契约形状（#2 起步骨架）。
+ * src/tracker/rooms/gitea/model/normalize.ts — tea/Gitea 原始形状 → 契约形状（#3 契约完整化）。
  *
- * 定版依据：#2 票面「最小 room」——本文件今天只归一最小可用的那几格，写法逐格仿 GitLab 房的
- * `normalize.ts`，接手的人两份对照着补：
+ * 写法逐格仿 GitLab 房的 `normalize.ts`，两份对照着读：
  *   - key 取 tea 回包的 `index`（Gitea 票号），缺了回退 `number` / `id`；永不产出 `number` 字段；
  *   - state 只归一成 open | closed（tea 用 open/closed 两态，与契约同构）；
  *   - labels 恒产出（能力字段 EMPTY 口径），每项 `{name, color}`，color 缺了写 `''`；
- *   - assignees / comments / blockedBy / reason 恒产出为空（起步房还没有对应读写操作，
- *     交 EMPTY 而不是 MISSING 是在说「这类能力位留着，操作没接」）；
- *   - milestone / customFields / author 一律省略（MISSING）：起步房拿不到这些形状，
- *     交不出「确实为空」的证据就不许交。
- *
- * Gitea 正文没有父子 / 阻塞标记约定（`parentKey` 恒 null 是起步的诚实口径）——
- * 真机上把父子、阻塞边的写侧口径定下来之后在这里补解析，别提前猜。
+ *   - assignees / comments / blockedBy / reason 恒产出（字段在、值可为空）：Gitea 远端没有
+ *     原生阻塞字段，blockedBy 的真相是票面正文的成对标记（机器表优先、可见 `Blocked by:` 行兜底）；
+ *   - parentKey 的唯一真相是票面文件头的隐藏标记 `<!-- DSH-PARENT: <地图号> -->`，
+ *     旧 `Part of #<地图号>` 可见行只在过渡期回退认（与 GitLab 房、本地房同一套标记）；
+ *   - milestone / author 有→对象，无→省略（MISSING）；customFields 一律省略（Gitea 无此概念）；
+ *   - 评论总数：Gitea 票面自带 `comments` 数字段（列表页评论一律不取，条数是 0），
+ *     拿到非负整数才写，拿不到保持省略——不许拿 comments.length 冒充总数。
  */
 
 import { STATE, ISSUE_TYPE } from '../../../contract/vocabulary.js'
+import { markerKindInHeader } from '../../../../shared/issue-file/src/marker.js'
 import type { Actor, IssueType, State } from '../../../contract/identity.js'
-import type { Issue, Label } from '../../../contract/entities.js'
+import type { Comment, Issue, IssueRef, Label, Milestone } from '../../../contract/entities.js'
+// 票面正文标记的全部规则住在同目录的 description-markers.ts：本文件只消费，不再定义第二份认法。
+// 标记写法与 GitLab 房、本地 Markdown 房是同一套（同一批票会在后端之间搬），两边读出同一个答案是红线。
+import {
+  parseHiddenBlockedBy,
+  parseHiddenParent,
+  parseLegacyPartOf,
+  parseVisibleBlockedBy,
+} from './description-markers.js'
 
 // tea 回包是外部形状，先收成键值袋再逐格判是因为远端字段可缺可空，直接按定型读会把缺字段当成错。
 type RawBag = Record<string, unknown>
@@ -87,6 +95,10 @@ function deriveKey(raw: unknown): string {
   return '0'
 }
 
+/**
+ * 票面正文：tea 的 REST 回包把正文放在 body，房内少数聚合形状用 description 这个名字。
+ * 两处读同一格，取值规则收在这里一份，免得识别与父子关系读到不一样的正文。
+ */
 function bodyOf(raw: unknown): string {
   const bag = asBag(raw)
   if (!bag) return ''
@@ -103,10 +115,148 @@ function deriveState(raw: unknown): State {
 }
 
 function deriveType(raw: unknown): IssueType {
-  // 起步只按 labels 里的地图标签分流（与 GitLab 房同一判据顺序的简化版）：
-  // 文件头标记的判据等父子写侧口径定了再补，提前写就等于猜。
+  // 判定顺序与 GitLab 房、GitHub 房同一份红线：正文文件头标记最前（标记 → 标签 → 形状，
+  // 依据是 GLOSSARY.md「对象类型」词条）。共享包 markerKindInHeader 只看第一个标题之前那一段，
+  // 首行幂等锚不影响第二行的规格标记。
+  if (markerKindInHeader(bodyOf(raw)) === 'spec') return ISSUE_TYPE.SPEC as IssueType
   if (normalizeLabels(raw).some((l) => l.name === 'wayfinder:map')) return ISSUE_TYPE.MAP as IssueType
+  const bag = asBag(raw)
+  if (bag && (bag['isMap'] === true || bag['type'] === 'map')) return ISSUE_TYPE.MAP as IssueType
   return ISSUE_TYPE.ISSUE as IssueType
+}
+
+function normalizeMilestone(rawMile: unknown): Milestone | undefined {
+  const bag = asBag(rawMile)
+  if (!bag) return undefined
+  const title = typeof bag['title'] === 'string' ? (bag['title'] as string).trim() : ''
+  if (!title) return undefined
+  const out: Milestone = { name: title }
+  if (typeof bag['description'] === 'string' && (bag['description'] as string).trim() !== '') {
+    out.description = bag['description'] as string
+  }
+  const stateRaw = bag['state'] ? String(bag['state']).toLowerCase() : ''
+  if (stateRaw === 'closed' || stateRaw === 'close') out.state = 'closed'
+  else if (stateRaw === 'active' || stateRaw === 'open' || stateRaw === 'opened') out.state = 'open'
+  // Gitea 里程碑的截止时间字段叫 due_on（REST），聚合形状兼容 due_date / dueOn 两个写法；
+  // 有键无值时显式写 null（「确实没有」），完全没这个键才省略。
+  const due = bag['due_on'] ?? bag['due_date'] ?? bag['dueOn'] ?? null
+  if (due != null) out.dueOn = String(due)
+  else if ('due_on' in bag || 'due_date' in bag) out.dueOn = null
+  return out
+}
+
+function normalizeComments(raw: unknown): Comment[] {
+  const bag = asBag(raw)
+  const src: unknown = (bag && (bag['notes'] || bag['comments'])) || []
+  // 注意：Gitea 票面自带的 comments 是**条数**（数字），只有数组才是聚合形状里的评论本体；
+  // 数字走下面的 commentCount 分流，这里遇到非数组一律当「没取评论」。
+  if (!Array.isArray(src)) return []
+  const out: Comment[] = []
+  for (const n of src as unknown[]) {
+    const nb = asBag(n)
+    if (!nb) continue
+    const body =
+      typeof nb['body'] === 'string'
+        ? (nb['body'] as string)
+        : typeof nb['note'] === 'string'
+          ? (nb['note'] as string)
+          : ''
+    const author = normalizeActor(nb['author']) || { login: '' }
+    out.push({
+      id: nb['id'] != null ? String(nb['id']) : undefined,
+      author,
+      authorAssociation: typeof nb['authorAssociation'] === 'string' ? (nb['authorAssociation'] as string) : '',
+      body,
+      createdAt:
+        typeof nb['created_at'] === 'string'
+          ? (nb['created_at'] as string)
+          : typeof nb['createdAt'] === 'string'
+            ? (nb['createdAt'] as string)
+            : '',
+      updatedAt:
+        typeof nb['updated_at'] === 'string'
+          ? (nb['updated_at'] as string)
+          : typeof nb['updatedAt'] === 'string'
+            ? (nb['updatedAt'] as string)
+            : '',
+    })
+  }
+  return out
+}
+
+// 可见 `Blocked by:` 行的解析住在 model/description-markers.ts：本文件只负责
+// 把原始引用补成契约形状（state 恒 open、type 恒 issue），不留自己的正则。
+function blockedKeysToRefs(keys: string[]): IssueRef[] {
+  const out: IssueRef[] = []
+  for (const k of keys) {
+    out.push({ key: String(k), title: '#' + String(k), state: STATE.OPEN as State, type: ISSUE_TYPE.ISSUE as IssueType })
+  }
+  return out
+}
+
+function deriveBlockedBy(raw: unknown): IssueRef[] {
+  const bag = asBag(raw)
+  // 聚合形状兼容层：个别形状会把阻塞条目直接放进 blocked_by / blockedBy / blockedByIssues 数组
+  // （Gitea 远端票面没有这三个字段，真源永远是正文标记；这一层只服务聚合与测试形状）。
+  let native: unknown = null
+  if (bag && Array.isArray(bag['blocked_by'])) native = bag['blocked_by']
+  else if (bag && Array.isArray(bag['blockedBy'])) native = bag['blockedBy']
+  else if (bag && Array.isArray(bag['blockedByIssues'])) native = bag['blockedByIssues']
+  if (Array.isArray(native) && (native as unknown[]).length > 0) {
+    const out: IssueRef[] = []
+    const seen = new Set<string>()
+    for (const b of native as unknown[]) {
+      const bb = asBag(b)
+      const k =
+        bb && bb['index'] != null
+          ? String(bb['index'])
+          : bb && bb['key'] != null
+            ? String(bb['key'])
+            : ''
+      if (!k || seen.has(k)) continue
+      seen.add(k)
+      out.push({
+        key: k,
+        title: bb && typeof bb['title'] === 'string' ? (bb['title'] as string) : k,
+        state: bb && bb['state'] === 'closed' ? (STATE.CLOSED as State) : (STATE.OPEN as State),
+        type: ISSUE_TYPE.ISSUE as IssueType,
+      })
+    }
+    return out
+  }
+  if (Array.isArray(native) && (native as unknown[]).length === 0) {
+    // 聚合形状显式给了空数组：以它为准，忽略正文回退（避免双写漂移时两边各说各话）。
+    if (bag && ('blocked_by' in bag || 'blockedBy' in bag)) return []
+  }
+  // 回退：先认文件头机器表，没有再认可见行（读侧隐藏优先；写侧成对维护，正常票面两者一致）。
+  const body = bodyOf(raw)
+  const hiddenTable = parseHiddenBlockedBy(body)
+  if (hiddenTable !== null) return blockedKeysToRefs(hiddenTable)
+  // 可见行回退保留原文片段（IssueRef.title 逐字照抄人写的那一段，可能是 #12、owner/repo#12 或网页地址）；
+  // state 恒 open、type 恒 issue 是这一层补的契约形状，标记模块只回原始引用。
+  const parsed = parseVisibleBlockedBy(body)
+  if (parsed !== null) {
+    return parsed.map((r) => ({
+      key: String(r.key),
+      title: r.title,
+      state: STATE.OPEN as State,
+      type: ISSUE_TYPE.ISSUE as IssueType,
+    }))
+  }
+  return []
+}
+
+function deriveParentKey(raw: unknown): string | null {
+  const bag = asBag(raw)
+  const body = bodyOf(raw)
+  // 隐藏标记优先；旧 `Part of` 行只在过渡期回退认（存量票还没被写过一次）；最后是聚合形状自带的格。
+  const hidden = parseHiddenParent(body)
+  if (hidden) return hidden
+  const legacy = parseLegacyPartOf(body)
+  if (legacy) return legacy
+  if (bag && typeof bag['parentKey'] === 'string') return bag['parentKey'] as string
+  if (bag && bag['parentKey'] === null) return null
+  return null
 }
 
 /**
@@ -120,6 +270,9 @@ export function normalizeIssue(raw: unknown): Issue {
   const state = deriveState(raw)
   const labels = normalizeLabels(raw)
   const assignees = normalizeAssignees(raw)
+  const comments = normalizeComments(raw)
+  const blockedBy = deriveBlockedBy(raw)
+  const parentKey = deriveParentKey(raw)
   const bag = asBag(raw)
 
   const title = bag && typeof bag['title'] === 'string' ? (bag['title'] as string) : ''
@@ -152,18 +305,35 @@ export function normalizeIssue(raw: unknown): Issue {
     createdAt,
     updatedAt,
     closedAt,
-    // 起步口径：Gitea 房还没有父子标记约定，恒 null（明确没有，不是未知——核心字段不许省略）。
-    parentKey: null,
+    parentKey,
     labels,
     assignees,
-    // 起步房还没有评论与阻塞边的读写操作：交 EMPTY（字段在、值是空）留住能力位。
-    comments: [],
-    blockedBy: [],
+    comments,
+    blockedBy,
     reason: bag && typeof bag['reason'] === 'string' ? (bag['reason'] as string) : '',
   }
 
-  // milestone / customFields / author 恒省略（MISSING）：起步房拿不到这些形状，
-  // 交不出「确实为空」的证据就不许交（EMPTY 与 MISSING 不可混用）。
+  // 评论总数：Gitea 票面自带 comments 数字段，比拿当前取到的评论条数估算可靠（列表页评论一律不取，
+  // 条数是 0）。这是详情页说「评论 (2) · 共 20 条」的依据；只有拿到非负整数才写，拿不到就保持省略
+  // ——调用方据此知道「总数未知」，不许拿 comments.length 冒充。数字之外的形状（数组、字符串以外的）不认。
+  const totalRaw = bag ? (typeof bag['comments'] === 'number' ? bag['comments'] : bag['commentCount']) : undefined
+  const totalNum = typeof totalRaw === 'number' ? totalRaw : typeof totalRaw === 'string' && totalRaw.trim() !== '' ? Number(totalRaw) : NaN
+  if (isFinite(totalNum) && totalNum >= 0) issue.commentCount = Math.floor(totalNum)
+
+  // milestone 独立能力字段：有→对象，无→省略(MISSING)
+  const mileRaw = bag ? bag['milestone'] : undefined
+  if (mileRaw && typeof mileRaw === 'object' && mileRaw !== null) {
+    const m = normalizeMilestone(mileRaw)
+    if (m) issue.milestone = m
+  }
+
+  // author 能力字段：有→对象，无→省略(MISSING)
+  if (bag && bag['author'] && typeof bag['author'] === 'object') {
+    const a = normalizeActor(bag['author'])
+    if (a) issue.author = a
+  }
+
+  // customFields 恒省略（MISSING）：Gitea 无此概念
   return issue
 }
 

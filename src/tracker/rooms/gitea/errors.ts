@@ -1,11 +1,12 @@
 /**
- * src/tracker/rooms/gitea/errors.ts — tea/API 错误 → 契约 ERROR_KIND（本房间的判档出口，#2 起步骨架）。
+ * src/tracker/rooms/gitea/errors.ts — tea/API 错误 → 契约 ERROR_KIND（本房间的判档出口）。
  *
  * ── 判据不在这里，这里只有「tea 这一家专有的条目」─────────────────────────────
  * 判「失败该归哪一档」的真源是全仓唯一那张有序规则表：`src/tracker/kernel/error-rules.ts`
  * （决策见 `docs/adr/20261014-error-classification-single-source.md`）。本文件仿 GitLab 房的
- * `errors.ts` 起步：先只做「透传 → 本家扩展表 → 通用表」这一趟判定，本家扩展表暂为空 ——
- * 真机上跑出 tea 专有原话（通用表认不出的）之后再逐条补进来，每条自带 `example` 自证。
+ * `errors.ts`：只做「透传 → 本家扩展表 → 通用表」这一趟判定；扩展表里放的是 tea 这一家专有、
+ * 通用表认不出的条目，每条自带 `example` 自证（门禁 `tests/verify-error-rule-samples.ts`
+ * 逐条把样本喂回去验证档位）。
  *
  * 结构与 GitLab 房逐格对应（classifyGiteaError / hintFor / failGitea），接手的人两份对照着读即可。
  */
@@ -29,11 +30,48 @@ export interface GiteaVerdict {
 /**
  * tea 这一家的前置扩展表（判档时先试它，再试通用表）。
  *
- * 起步为空（#2 是房间骨架票）：真机上 tea 的专有原话一条都还没采到，凭记忆编条目只会造出
- * 没有样本支撑的假判据。采到之后按 GitLab 房那两条的写法补进来，每条自带 `example`，
- * 门禁会逐条把样本喂回去验证档位。
+ * 三条要守的规矩（与 GitLab 房同一套）：
+ *   · 只放通用表认不出的东西。已收进通用表的**不许再抄一份** —— `tea: command not found` 这类
+ *     「命令没装」句式、`ENOTFOUND` 这类网络错误码名、`not found` 的词边界写法、401/403 这类
+ *     事实层状态码，通用表都已经认了（`src/tracker/kernel/error-rules.ts` 的
+ *     ①事实/②错误码名/③句式三层）；
+ *   · 每条自带 `example`：把这条样本单独喂进判档，结果必须正好是它声明的档位（门禁逐条自证）；
+ *   · 不许与通用项同层同模式（那会长出第二份判据，门禁拦着）。
+ *
+ * 留下的三条把 tea 用户最常撞上的三档失败都接住了：
+ *   · 未登录（两条 AUTH）：tea 找不到凭据时说的是 `no token` / `please log in` 这类原话，
+ *     通用表的认证句式认不出（那条要求 `not … in` 连写或 auth/credential 这些词）；
+ *   · 无仓库（一条 NOT-FOUND）：tea 对不存在的仓库给 `repository does not exist` 原话
+ *     （常与 404 一起出现，扩展层先试，所以带状态码的原文也命中这一条，不会掉进兜底的「网络」）。
  */
-export const GITEA_ERROR_RULES: readonly ErrorRule[] = []
+export const GITEA_ERROR_RULES: readonly ErrorRule[] = [
+  {
+    kind: ERROR_KIND.AUTH as ErrorKind,
+    layer: 'phrase',
+    pattern: /no token|token (?:is )?(?:required|invalid|expired|missing)|invalid or expired token/i,
+    example: { text: 'tea: no token found for gitea.example.com; run tea login add' },
+    note: 'tea 找不到凭据时的原话。通用表的认证句式认不出这句（里面没有 auth/credential 这些词，'
+      + '也没有 not … in 连写）——判不出就会落到兜底的「网络」，界面于是让用户去查网络，'
+      + '而该做的是 `tea login add` 重新登录',
+  },
+  {
+    kind: ERROR_KIND.AUTH as ErrorKind,
+    layer: 'phrase',
+    pattern: /please (?:log|sign) in|not authenticated|login (?:is )?required|no login (?:configured|entry|found)/i,
+    example: { text: 'tea: please log in before running this command' },
+    note: 'tea 在没有可用登录项时的另一句原话（服务端要求先认证）。通用表同样认不出它，'
+      + '归认证档并指向 `tea login add`，跟上一条「找不到令牌」是同一种病、同一个下一步',
+  },
+  {
+    kind: ERROR_KIND.NOTFOUND as ErrorKind,
+    layer: 'phrase',
+    pattern: /repository does not exist|repo does not exist|owner or repository (?:does not exist|not found)|not found or you do not have permission/i,
+    example: { text: '404 repository does not exist [see: https://gitea.example/api/swagger]' },
+    note: 'tea 对不存在的仓库（或没有权限看见的仓库）的原话，常与 404 一起出现。'
+      + '扩展层先试，所以带状态码的原文也命中这一条而不是通用表的事实层，'
+      + '提示能指到「核对 owner/repo 写法与实例地址」这个真正有用的下一步',
+  },
+]
 
 /** `err` 已经是规范档位了吗（顶层 `kind` 或 `error.kind` 命中八档取值之一）。 */
 function carriedKind(err: unknown): ErrorKind | null {

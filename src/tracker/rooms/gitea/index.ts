@@ -25,6 +25,8 @@ import { remoteUrlsOfGitConfig } from '../../kernel/git-remote.js'
 import { normalizeTrackerText, parseIssueTracker } from '../../kernel/issue-tracker-declaration.js'
 import { issueAddress, repoSearchAddress, DEFAULT_GITEA_WEB_ORIGIN } from './room/links.js'
 import { prompts } from './room/prompts.js'
+import type { ProvidedCapability } from '../../contract/capability-answer.js'
+import type { GITEA_CAPABILITY_REGISTER } from './support/capability-register.js'
 
 /** 识别这一趟要用的文件服务：就用契约上下文里那一格，不另定义形状。 */
 type MarkerFs = OpContext['fs']
@@ -122,16 +124,66 @@ export function describe(
 }
 
 /**
- * 创建 Gitea 后端适配器（#2 起步：只交 preflight 一条操作）。
- *
- * 返回类型故意不标（理由同 GitLab 房）：没实现的那些操作由注册表补「我不支持」的桩。
- * 形状判定（members 集合与 `satisfies` 断言）等操作补齐时按 GitLab 房那份登记数据的方式接上。
+ * 工厂实例上真正存在的成员集合：id 之外的全部名字由登记数据推出来（provided 那几条）。
+ * 没登记为 provided 的操作不在这里出现——注册表的 Proxy 会按名录给它们补「不支持」的桩。
+ * 编译期拿这个类型钉工厂返回值，多交、少交都会当场红（GitLab 房同一套形状判定）。
  */
-export function createGiteaBackend(ctx: BackendContext) {
+export type GiteaBackendMembers = 'id' | ProvidedCapability<typeof GITEA_CAPABILITY_REGISTER>
+
+/**
+ * 从 git 远端地址里解析 owner/name（定位口 getRepoKey 的实现）。
+ *
+ * 地址形状认三类（其余一律回 null，不是异常）：
+ *   · https(s)://host/owner/name(.git)；
+ *   · git@host:owner/name(.git)（scp 写法）；
+ *   · ssh://git@host/owner/name(.git)。
+ * owner/name 取路径最后两段，尾巴的 .git 去掉；解析不出来（没有两段、或者拿不到远端地址）
+ * 诚实回 null——契约对定位口只有「名字或者空」这一种答案形态。
+ */
+function repoKeyFromRemoteUrl(url: string): { owner: string; name: string } | null {
+  const trimmed = url.trim()
+  const withoutSuffix = trimmed.replace(/\.git$/i, '')
+  // scp 写法先转成普通路径形状再切段：git@host:owner/name → host/owner/name
+  const normalized = withoutSuffix.replace(/^[^/:]+:/, (m) => (m.includes('@') && !m.includes('/') ? m.replace(':', '/') : m))
+  const segments = normalized.split('/').filter(Boolean)
+  if (segments.length < 2) return null
+  const name = segments[segments.length - 1]
+  const owner = segments[segments.length - 2]
+  if (!owner || !name || owner.includes('@') || owner.includes(':')) return null
+  return { owner, name }
+}
+
+/**
+ * 创建 Gitea 后端适配器（票 #3 口径：探活 + 三个定位口；其余操作由注册表补桩）。
+ *
+ * 返回类型按登记数据推出（见 GiteaBackendMembers），多交、少交都编译红；
+ * 没实现的那些操作不在这里出现，调用方拿到的会是注册表的规范 unsupported 桩。
+ */
+export function createGiteaBackend(ctx: BackendContext): GiteaBackendMembers {
   return {
     id: 'gitea',
     describe: (handle: RepoHandle | Partial<RepositoryRef> | null | undefined) => describe(handle, 'gitea'),
+    issueAddress: (ref: Partial<RepositoryRef> | null | undefined, key: string | number) => issueAddress(ref, key),
     preflight: (handle: RepoHandle | null | undefined, opCtx: OpContext | null | undefined) => teaPreflight(handle, opCtx || ctx),
+    /**
+     * 定位口：问「这个仓库叫什么」。从 `.git/config` 记下的远端地址解析 owner/name
+     * （best-effort 真问一次 git remote，与 matches 的兜底同一档超时）；解析不出来回 null。
+     */
+    getRepoKey: async (cwd: string, opCtx: OpContext | null | undefined) => {
+      const exec = opCtx && opCtx.exec
+      if (!exec || typeof cwd !== 'string' || !cwd) return null
+      try {
+        const res = await exec('git', ['remote', 'get-url', 'origin'], {
+          cwd,
+          timeout: GITEA_FALLBACK_TIMEOUT_MS,
+        })
+        const url = ((res.stdout || '') + '\n' + (res.stderr || '')).split('\n').map((l) => l.trim()).find(Boolean)
+        if (!url) return null
+        return repoKeyFromRemoteUrl(url)
+      } catch {
+        return null
+      }
+    },
   }
 }
 
