@@ -67,72 +67,13 @@ import { readDeclarationLayer, readFileLayer } from './readEvidenceLayers.js';
 // 这里照常引用并对外再导出，别的文件仍按老路径导入，不必跟着改。
 import { EVIDENCE_PRIORITY, verdictEvidence, abstainEvidence, unavailableEvidence, skippedEvidence, coverageOf, formatCoverage } from './evidenceHelpers.js';
 export { EVIDENCE_PRIORITY, verdictEvidence, abstainEvidence, unavailableEvidence, skippedEvidence, coverageOf, formatCoverage };
+// 证据形状的六个类型也搬去了 evidenceHelpers.ts（票 #6 收口，方向只能单向）：
+// 这里按类型导入并对外再导出，别的文件仍按老路径导入，不必跟着改。
+export type { EvidenceTier, EvidenceScope, EvidenceOutcomeWord, EvidenceKind, SelectionSource, TierEvidence, DecisionCoverage } from './evidenceHelpers.js';
+import type { EvidenceTier, EvidenceScope, EvidenceOutcomeWord, EvidenceKind, SelectionSource, TierEvidence, DecisionCoverage } from './evidenceHelpers.js';
 // 这几个类型原来就长在这个文件里、对外导出；读法搬走后从新文件原样再导出一遍，
 // 别的文件仍可按老路径导入，不必跟着改。
 export type { DeclarationIdHint, DeclarationLayerDeps, FileLayerDeps, WorkspaceFileParsed } from './readEvidenceLayers.js';
-
-/* ══════════════════════════════════════════════════════════════════════════════
- * 一、证据的形状：层与全序（政策即数据）
- * ════════════════════════════════════════════════════════════════════════════ */
-
-/**
- * 证据层。取值就是步骤行里的 `step` 取值（稳定，写进日志，改含义要发新事件）：
- * workspace-file（工作区文件里人选的那一层）/ declaration（声明文件那一层）/ autodetect（各房认领）。
- */
-export type EvidenceTier = 'workspace-file' | 'declaration' | 'autodetect'
-
-/**
- * 证据范围：收多深由问的人想干什么决定。
- *  - decisive：要一个结论。高优先级层给出结论就停。
- *  - exhaustive：要一份诊断。三层全收，跨层矛盾才看得见。
- */
-export type EvidenceScope = 'decisive' | 'exhaustive'
-
-/**
- * 一层证据这一步的结论用词（稳定，写进步骤行）：
- * hit（给出可用后端）/ miss（看过了，这一层没有可用的记录）/ unreadable（记录在但读不出、格式不对）
- * / unknown-backend（写了后端名，但那个后端没装上）/ pending（认领超时未决）/ error（这一步出错了）
- * / skipped（有意没看这一层）。
- */
-export type EvidenceOutcomeWord = 'hit' | 'miss' | 'unreadable' | 'unknown-backend' | 'pending' | 'error' | 'skipped'
-
-/**
- * 这一层这一步的意义分四类，与用词的关系写在下面的构造函数里：
- * verdict（给出了可用结论）/ abstain（看过了，没有结论）/ unavailable（没看成或问不成）/ skipped（有意没看）。
- * 判定层只认 kind，日志层只认 outcome，两者不许对不上——所以只经构造函数产出。
- */
-export type EvidenceKind = 'verdict' | 'abstain' | 'unavailable' | 'skipped'
-
-/**
- * 一层证据的收集结果：这一步看了什么、结论是什么、为什么。
- * 可选格只在特定层有意义：fileSource 只有工作区文件层有（user / migrated / detected / auto，
- * 用来分辨人选与搬来的记录）；multiHit / pending / ref / source 只有各房认领层有。
- * declarationConfidence 只有声明文件层有（#1572）：高置信来自标题行；正文关键词的低置信在读取层
- * 就记成 abstain（方案 A），不会走到 pickVerdict 产出结论，这里只作证据元数据保留。
- */
-export interface TierEvidence {
-  tier: EvidenceTier
-  kind: EvidenceKind
-  outcome: EvidenceOutcomeWord
-  reason: string
-  backendId: string
-  fileSource?: unknown
-  source?: SelectionSource
-  multiHit?: string[]
-  pending?: true
-  ref?: RepositoryRef | null
-  declarationConfidence?: 'high' | 'low'
-}
-
-/**
- * 覆盖度：这次真看了哪几层、哪几层是有意没看、为什么。
- * 它存在的理由只有一条：让「没有发现矛盾」与「没有去看」分得开（与三态同一条原则）。
- */
-export interface DecisionCoverage {
-  scope: EvidenceScope
-  checked: EvidenceTier[]
-  skipped: { tier: EvidenceTier; why: string }[]
-}
 
 /** 一份证据报告：收集层的产出，判定层的唯一输入。 */
 export interface EvidenceReport {
@@ -178,12 +119,6 @@ export interface DecisionSynthesis {
 export type DecisionSelection = Omit<Selection, 'ref'> & {
   ref?: RepositoryRef | null
 };
-
-/**
- * 「这个结论怎么来的」的四种取值，直接取自契约（不另立一份，免得两处各说各话）。
- * 内部一概用这一份：谁要是写了个契约里没有的来源名，类型检查当场红。
- */
-export type SelectionSource = Selection['source'];
 
 /**
  * 判定内部的三态（#1048·#1047 决策 4）：有结论 / 判不出来（缺什么）/ 明确没有后端。

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-10T08:11:20.336Z",
+  "generatedAt": "2026-11-10T08:34:13.005Z",
   "generatedBy": "node scripts/gate-map.mts",
   "chainLength": 601,
   "gateCount": 601,
@@ -10,7 +10,7 @@
   "completionRecordedGates": 143,
   "smokeLength": 8,
   "smokeCompletionRecordedGates": 5,
-  "graphFileCount": 970,
+  "graphFileCount": 971,
   "gates": [
     {
       "step": "node tests/verify-1207-splice-ts.ts",
@@ -16622,9 +16622,9 @@
   },
   "coverage": {
     "sourceRoot": "src",
-    "fileCount": 993,
+    "fileCount": 994,
     "dirCount": 105,
-    "coveredFileCount": 993,
+    "coveredFileCount": 994,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
     "dedicatedDirCount": 83,
@@ -17380,6 +17380,7 @@
       "src/tracker/deck-derive.ts",
       "src/tracker/detection/backendDecision.ts",
       "src/tracker/detection/detectionService.ts",
+      "src/tracker/detection/evidenceHelpers.ts",
       "src/tracker/detection/explicitDetector.ts",
       "src/tracker/detection/parseIssueTracker.ts",
       "src/tracker/detection/preflightScope.ts",
