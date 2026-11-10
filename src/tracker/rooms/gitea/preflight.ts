@@ -25,6 +25,10 @@ import { classifyGiteaError } from './errors.js'
 
 /** 探针超时（毫秒）。起步值与 GitHub/GitLab 房的识别探针同量级，接入中央超时线时一并搬走。 */
 const TEA_PROBE_TIMEOUT_MS = 3000
+// 探测只要一条：这里取 1 不是分页契约的页大小（那条契约住在 src/tracker/contract/pagination.ts，
+// 各后端同一套口径），只是「能列出一条就说明仓库可达」的最小请求，所以用本文件常量起步；
+// 常量名不带 PAGE_SIZE 这类后缀，避免被当成页大小额度（那是共享表的管辖范围）。
+const TEA_PROBE_FETCH_ONE = 1
 
 // 预检入参两形都收，是因为调用方有时拿仓库身份、有时拿句柄，直接收窄会把另一路挡在门外。
 type PreflightHandle = Partial<OpContext> & Partial<BackendContext> & {
@@ -107,7 +111,7 @@ export async function teaPreflight(
     ''
   if (probeId || cwd) {
     try {
-      const probe = await exec('tea', ['issues', 'ls', '--limit', '1'], { cwd, signal, timeout: TEA_PROBE_TIMEOUT_MS })
+      const probe = await exec('tea', ['issues', 'ls', '--limit', String(TEA_PROBE_FETCH_ONE)], { cwd, signal, timeout: TEA_PROBE_TIMEOUT_MS })
       const out = String(probe.stdout || '') + '\n' + String(probe.stderr || '')
       if (probe.code !== 0) {
         const verdict = classifyGiteaError(probe, ctx || undefined)
