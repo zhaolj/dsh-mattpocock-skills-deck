@@ -11,16 +11,19 @@
  *     给程序读（rewriteDescriptionWithBlockedPair 同一处出处）；整集替换，空集两处一起拆。
  *   · tea 没有父子/阻塞的原生命令，两条操作的数据源都是 `tea issues edit --description` 整篇正文替换。
  *
- * 写前写后的纪律与 labels/assign.ts 同一套：expectedUpdatedAt 前置读（对不上回 conflict，不写）、
- * 写后回读核对（读回对不上如实回 conflict，不把「写丢了」包装成成功）。setBlockedBy 的环检是
- * 契约的硬规矩（operations.ts 写明不许省）：邻接表从单页列表读出来（tea 阻塞关系全在正文里），
- * 读不到就放行并落一行读降级——读失败不能当成写失败。
+ * 写前写后的纪律与 labels/assign.ts 同一套：expectedUpdatedAt 前置读走共享助手
+ * support/expected-preflight.ts（对不上回 conflict，不写）、写后回读核对（读回对不上如实回
+ * conflict，不把「写丢了」包装成成功）。setBlockedBy 的环检是契约的硬规矩（operations.ts 写明
+ * 不许省）：邻接表先从单页列表读出来，再从本次要写的阻塞者出发沿边逐张展开补拉（票 #14 对齐
+ * GitLab 房 buildBlockMap 的形状；展开的票数用共享分页表 subIssuesMax 封顶），快照整体拉不到
+ * 就放行并落一行读降级（取值登记在 support/read-log.ts）——读失败不能当成写失败。
  */
 import { ERROR_KIND } from '../../../contract/vocabulary.js'
 import type { ErrorKind } from '../../../contract/identity.js'
 import type { Issue, RepositoryRef } from '../../../contract/entities.js'
 import type { SetOpts } from '../../../contract/inputs.js'
 import { TRACKER_ERROR_STAGE, type OpResult } from '../../../contract/results.js'
+import { PAGINATION } from '../../../contract/pagination.js'
 import { fail } from '../../../kernel/preflight.js'
 import { normalizeIssue } from '../model/normalize.js'
 // 正文标记的写与读只在 model/description-markers.ts 一处，本文件直接用那个出处。
@@ -33,15 +36,11 @@ import {
 import { failGitea } from '../errors.js'
 // 共享的原始票读取与单页列表（环检邻接的来源）都在 issues/read.ts 一处，不各建一份。
 import { fetchRawIssue, listIssues } from '../issues/read.js'
-import {
-  type CtxLike,
-  type RawBag,
-  argsIssueEdit,
-  emitReadDegraded,
-  errMsg,
-  refIdOf,
-  runTea,
-} from '../support/tea-run.js'
+// 前置守卫与共享助手收编在 support/ 一处（票 #14）：目标解析、expectedUpdatedAt 前置读、读降级登记。
+import { resolveTarget } from '../support/target.js'
+import { preflightExpected } from '../support/expected-preflight.js'
+import { emitReadDegraded } from '../support/read-log.js'
+import { type CtxLike, type RawBag, argsIssueEdit, errMsg, runTea } from '../support/tea-run.js'
 
 type RepoLike = Partial<RepositoryRef> | null | undefined
 
@@ -78,13 +77,18 @@ function hasCycle(blockMap: Map<string, string[]>, startKey: string, newBlockers
 }
 
 /**
- * 环检用的阻塞图快照：tea 没有原生阻塞端点，阻塞关系全在各票正文里，
- * 从单页列表（共享分页表 gitea 组的 maxPerPage）读出来逐张解析。取不到（列表失败）回 null，
- * 调用方放行并记读降级——读不到的票当叶子，这个缺口认，与 GitLab 房 buildBlockMap 同一条纪律。
+ * 环检用的阻塞图快照：tea 没有原生阻塞端点，阻塞关系全在各票正文里。
+ * 两步走（票 #14 对齐 GitLab 房 buildBlockMap 的形状）：先从单页列表（共享分页表 gitea 组的
+ * maxPerPage）读出底图，再从本次要写的阻塞者出发沿边展开——沿途每张票先看底图里有没有，
+ * 没有就单独读一张，把它的原生阻塞并进图里再往下走；读不到的那张当叶子，这个缺口认。
+ * 整张底图拉不到（列表失败）回 null，调用方放行并记读降级——读失败不能当成写失败，
+ * 与 GitLab 房 buildBlockMap 同一条纪律。展开的票数用共享分页表 subIssuesMax 封顶。
  */
 async function blockedBySnapshot(
   effective: CtxLike | null | undefined,
   repo: RepoLike,
+  refId: string,
+  wanted: string[],
 ): Promise<Map<string, string[]> | null> {
   const map = new Map<string, string[]>()
   try {
@@ -94,10 +98,35 @@ async function blockedBySnapshot(
     for (const it of res.data) {
       map.set(String(it.key), parseBlockedByFallback(it.body) ?? [])
     }
-    return map
   } catch {
     return null
   }
+  // 沿边展开：底图已盖住的票直接用底图里的边，没盖住的逐张补读。
+  const limit = PAGINATION.gitea.subIssuesMax
+  const queue = [...wanted]
+  const seen = new Set<string>()
+  while (queue.length > 0 && seen.size < limit) {
+    const cur = queue.shift() as string
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    const base = map.get(cur) ?? []
+    let native: string[] = []
+    if (!map.has(cur)) {
+      try {
+        const raw = await fetchRawIssue(effective, refId, cur)
+        native = parseBlockedByFallback(bodyOf(raw)) ?? []
+      } catch {
+        // 沿途这一张读不到：当叶子处理（底图里已有的边仍然算数），缺口由整体放行的口径认账。
+        native = []
+      }
+    }
+    const merged = [...new Set([...base, ...native])]
+    map.set(cur, merged)
+    for (const nb of merged) {
+      if (!seen.has(nb)) queue.push(nb)
+    }
+  }
+  return map
 }
 
 /**
@@ -120,12 +149,10 @@ export async function setParent(
   opts: SetOpts | null | undefined,
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Issue>> {
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  // 原文给空串：这一条是本地入参不全（远端一个请求都没发），没有外部原文可取。
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'setParent: repo.refId 缺失，无法向 Gitea 改归属', '')
-  const k = String(key).trim()
-  if (!k) return fail(ERROR_KIND.PARSE as ErrorKind, 'setParent: 票号缺失', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
+  // 目标解析三行守卫收编在 support/target.ts 一处（票 #14）；各操作的原话消息在这里传进去。
+  const t = resolveTarget(ctx, repo, key, opCtx, 'setParent', 'setParent: repo.refId 缺失，无法向 Gitea 改归属')
+  if (!t.ok) return t.result
+  const { effective, refId, key: k } = t
   const wantParent = parentKey === null ? null : String(parentKey).trim().replace(/^#/, '')
   if (wantParent !== null && !/^\d+$/.test(wantParent)) {
     return fail(ERROR_KIND.PARSE as ErrorKind, 'setParent: 父票号要是不带井号的纯数字（收到 ' + wantParent + '）', JSON.stringify({ key: k, parentKey }), TRACKER_ERROR_STAGE.INPUT_REFUSED)
@@ -135,13 +162,13 @@ export async function setParent(
     return fail(ERROR_KIND.CONFLICT as ErrorKind, 'conflict: self-parent ' + k, JSON.stringify({ key: k, parentKey: wantParent }), TRACKER_ERROR_STAGE.INPUT_REFUSED)
   }
   try {
-    const raw = await fetchRawIssue(effective, refId, k)
-    // expectedUpdatedAt 前置读：对不上回 conflict，绝不后写覆盖先写（原文 = 回读到的票面）。
-    if (opts && typeof opts.expectedUpdatedAt === 'string' && opts.expectedUpdatedAt !== '') {
-      const cur = typeof raw['updated_at'] === 'string' ? String(raw['updated_at']) : ''
-      if (cur !== opts.expectedUpdatedAt) {
-        return fail(ERROR_KIND.CONFLICT as ErrorKind, 'conflict: expectedUpdatedAt 不一致（期望 ' + opts.expectedUpdatedAt + '，远端 ' + cur + '）', JSON.stringify(raw))
-      }
+    // expectedUpdatedAt 前置读走共享助手（support/expected-preflight.ts，票 #14 收编）：
+    // 对不上回 conflict，绝不后写覆盖先写（原文 = 回读到的票面）；没给就不读，自己再读一次。
+    let pre = await preflightExpected(effective, refId, k, opts)
+    if (pre && 'ok' in (pre as OpResult<Issue>)) return pre as OpResult<Issue>
+    let raw = pre as RawBag | null
+    if (!raw) {
+      raw = await fetchRawIssue(effective, refId, k)
     }
     if (wantParent !== null) {
       // 父票存在性：写一个不存在的父编号会把读侧（listSubIssues / get 的 parentKey）指向空票，
@@ -180,7 +207,8 @@ export async function setParent(
 /**
  * 改阻塞关系（契约 setBlockedBy）：可见 `Blocked by:` 行与隐藏机器表成对整集替换
  * （rewriteDescriptionWithBlockedPair 一处出处），空集两处一起拆。契约两条硬规矩都在写之前拦下：
- * 自阻塞 → conflict；写完成环 → conflict 且不落盘（环检邻接从单页列表读出，读不到放行并记读降级）。
+ * 自阻塞 → conflict；写完成环 → conflict 且不落盘（环检邻接先单页列表打底、再沿边展开补拉；
+ * 快照整体拉不到就放行并记读降级，取值登记在 support/read-log.ts）。
  * expectedUpdatedAt 前置读；写后回读核对，阻塞整集一个都不能少、也不能多。
  *
  * @param ctx 调用上下文（opCtx 缺时顶上）
@@ -199,11 +227,10 @@ export async function setBlockedBy(
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Issue>> {
   const startedAt = Date.now()
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'setBlockedBy: repo.refId 缺失，无法向 Gitea 改阻塞关系', '')
-  const k = String(key).trim()
-  if (!k) return fail(ERROR_KIND.PARSE as ErrorKind, 'setBlockedBy: 票号缺失', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
+  // 目标解析三行守卫收编在 support/target.ts 一处（票 #14）；各操作的原话消息在这里传进去。
+  const t = resolveTarget(ctx, repo, key, opCtx, 'setBlockedBy', 'setBlockedBy: repo.refId 缺失，无法向 Gitea 改阻塞关系')
+  if (!t.ok) return t.result
+  const { effective, refId, key: k } = t
   // 整集归一：裸串与带井号都收，去空白、去重，保持调用方给的顺序。
   const wanted: string[] = []
   for (const b of Array.isArray(blockers) ? blockers : []) {
@@ -215,18 +242,19 @@ export async function setBlockedBy(
     return fail(ERROR_KIND.CONFLICT as ErrorKind, 'conflict: self-loop ' + k, JSON.stringify({ key: k, blockers: wanted }), TRACKER_ERROR_STAGE.INPUT_REFUSED)
   }
   try {
-    const raw = await fetchRawIssue(effective, refId, k)
-    // expectedUpdatedAt 前置读：对不上回 conflict，绝不后写覆盖先写（原文 = 回读到的票面）。
-    if (opts && typeof opts.expectedUpdatedAt === 'string' && opts.expectedUpdatedAt !== '') {
-      const cur = typeof raw['updated_at'] === 'string' ? String(raw['updated_at']) : ''
-      if (cur !== opts.expectedUpdatedAt) {
-        return fail(ERROR_KIND.CONFLICT as ErrorKind, 'conflict: expectedUpdatedAt 不一致（期望 ' + opts.expectedUpdatedAt + '，远端 ' + cur + '）', JSON.stringify(raw))
-      }
+    // expectedUpdatedAt 前置读走共享助手（support/expected-preflight.ts，票 #14 收编）：
+    // 对不上回 conflict，绝不后写覆盖先写（原文 = 回读到的票面）；没给就不读，自己再读一次。
+    let pre = await preflightExpected(effective, refId, k, opts)
+    if (pre && 'ok' in (pre as OpResult<Issue>)) return pre as OpResult<Issue>
+    let raw = pre as RawBag | null
+    if (!raw) {
+      raw = await fetchRawIssue(effective, refId, k)
     }
     if (wanted.length > 0) {
-      // 环检（契约的硬规矩，不许省）：邻接表从单页列表读出来，把本次要写的整集应用上去再判。
-      // 快照拉不到就放行并落一行读降级——读失败不能当成写失败，这个缺口写在 blockedBySnapshot 头上。
-      const snapshot = await blockedBySnapshot(effective, repo)
+      // 环检（契约的硬规矩，不许省）：邻接表从单页列表读出底图后，再从本次要写的阻塞者出发
+      // 沿边展开补拉沿途的票（票 #14，形状见 blockedBySnapshot 头注），把要写的整集应用上去再判。
+      // 快照拉不到就放行并落一行读降级（取值登记在 support/read-log.ts）——读失败不能当成写失败。
+      const snapshot = await blockedBySnapshot(effective, repo, refId, wanted)
       if (snapshot === null) {
         emitReadDegraded(effective, 'setBlockedBy', 'setBlockedBy:cycle-unchecked', Date.now() - startedAt)
       } else if (hasCycle(snapshot, k, wanted)) {

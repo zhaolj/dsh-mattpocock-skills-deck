@@ -66,6 +66,11 @@ export const GITEA_CAPABILITY_REGISTER = {
   ensureLabelColorsFile: { tier: 'unsupported-by-design', stubBy: 'backend' },
   // 读预算（票 #14）：Gitea API 没有账号级配额端点、tea 不透出速率响应头，没有水位可量——
   // 实现恒回 { known: false, reason: 'unsupported' }（budget.ts），如实说「没有量」，不猜一个数。
+  // 档位仍是明确提供功能（双轴评审第 5 条的背书）：provided 的判据是「成员在、调得动、
+  // 每种合法输入对得上承诺」——readBudget 不收任何输入，不存在「某几种输入对不上」的
+  // partially-provided 形态；而「永远放行、不记账」正是契约对它的承诺（contract/README.md），
+  // budget-model.ts 的 unknown 读数分支就是为量不出水位的后端准备的合法回话（operations.ts）。
+  // 同形先例：本地 Markdown 房恒回常量读数同样登记 provided。
   readBudget: { tier: 'provided' },
   listMaps: { tier: 'provided' },
 

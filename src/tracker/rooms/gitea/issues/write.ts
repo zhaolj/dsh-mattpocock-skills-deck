@@ -28,6 +28,8 @@ import { failGitea } from '../errors.js'
 // 幂等键判据的唯一出处：校验（不清洗、不合规拒绝）在刷新核心的产物里。
 import { checkIdempotencyKey } from '../../../../refresh/contract/idempotency-keys.js'
 import { getIssue, fetchRawIssue } from './read.js'
+// 目标解析三行守卫收编在 ../support/target.ts 一处（票 #14），四个写操作入口共用。
+import { resolveTarget } from '../support/target.js'
 import {
   type CtxLike,
   type RawBag,
@@ -38,7 +40,6 @@ import {
   errMsg,
   parseCreatedIssueKey,
   parseJsonBag,
-  refIdOf,
   runTea,
 } from '../support/tea-run.js'
 
@@ -65,9 +66,10 @@ export async function createIssue(
   input: CreateInput,
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Issue>> {
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'create: repo.refId 缺失，无法向 Gitea 建票', '')
+  // 建票没有票号这一格：目标解析只管仓库标识（票号守卫对空串字面量永远不触发）。
+  const t = resolveTarget(ctx, repo, '', opCtx, 'create', 'create: repo.refId 缺失，无法向 Gitea 建票')
+  if (!t.ok) return t.result
+  const { effective, refId } = t
   if (!input || typeof input.title !== 'string' || !input.title.trim()) {
     // 输入要改的失败重试同一份没有意义：标输入被拒（与 GitLab 房同一档位）。
     return fail(ERROR_KIND.PARSE as ErrorKind, 'create: 标题必填', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
@@ -139,11 +141,10 @@ export async function closeIssue(
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Issue>> {
   void opts
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'close: repo.refId 缺失，无法向 Gitea 关票', '')
-  const k = String(key).trim()
-  if (!k) return fail(ERROR_KIND.PARSE as ErrorKind, 'close: 票号缺失', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
+  // 目标解析三行守卫收编在 support/target.ts 一处（票 #14）；各操作的原话消息在这里传进去。
+  const t = resolveTarget(ctx, repo, key, opCtx, 'close', 'close: repo.refId 缺失，无法向 Gitea 关票')
+  if (!t.ok) return t.result
+  const { effective, refId, key: k } = t
   try {
     const res = await runTea(effective, argsIssueClose(refId, k))
     if (res.code !== 0) {
@@ -173,11 +174,9 @@ export async function reopenIssue(
   key: string,
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Issue>> {
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'reopen: repo.refId 缺失，无法向 Gitea 重开票', '')
-  const k = String(key).trim()
-  if (!k) return fail(ERROR_KIND.PARSE as ErrorKind, 'reopen: 票号缺失', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
+  const t = resolveTarget(ctx, repo, key, opCtx, 'reopen', 'reopen: repo.refId 缺失，无法向 Gitea 重开票')
+  if (!t.ok) return t.result
+  const { effective, refId, key: k } = t
   try {
     const res = await runTea(effective, argsIssueReopen(refId, k))
     if (res.code !== 0) {
@@ -207,11 +206,9 @@ export async function updateIssue(
   patch: UpdatePatch,
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Issue>> {
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'update: repo.refId 缺失，无法向 Gitea 改票', '')
-  const k = String(key).trim()
-  if (!k) return fail(ERROR_KIND.PARSE as ErrorKind, 'update: 票号缺失', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
+  const t = resolveTarget(ctx, repo, key, opCtx, 'update', 'update: repo.refId 缺失，无法向 Gitea 改票')
+  if (!t.ok) return t.result
+  const { effective, refId, key: k } = t
   if (!patch || typeof patch !== 'object') {
     return fail(ERROR_KIND.PARSE as ErrorKind, 'update: patch 必填', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
   }

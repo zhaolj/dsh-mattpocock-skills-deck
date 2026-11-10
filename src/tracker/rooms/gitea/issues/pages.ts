@@ -23,7 +23,7 @@ import { fail } from '../../../kernel/preflight.js'
 import { failGitea } from '../errors.js'
 import { normalizeIssue } from '../model/normalize.js'
 import { scanIssueCounts } from './counts.js'
-import { type CtxLike, argsIssueListPage, errMsg, labelsOf, parseJsonRows, refIdOf, runTea } from '../support/tea-run.js'
+import { type CtxLike, argsIssueListPage, errMsg, labelsOf, narrowStateOf, parseJsonRows, refIdOf, runTea } from '../support/tea-run.js'
 
 /** 游标（页码）解析：非正整数或认不出时回 0（当第 1 页），不报错。 */
 function pageOf(cursor: string | null | undefined): number {
@@ -40,11 +40,7 @@ function limitOf(opts: PageOpts | null | undefined): number {
   return Math.max(1, Math.min(requested, cap))
 }
 
-/** filter.state 归一：只认 open / closed，其余按「都要」（与 counts 同一口径）。 */
-function narrowStateOf(filter: ListFilter | null | undefined): 'open' | 'closed' | '' {
-  const state = filter && typeof filter.state === 'string' ? (filter.state.trim().toLowerCase() as 'open' | 'closed' | '') : ''
-  return state === 'open' || state === 'closed' ? state : ''
-}
+// filter.state 归一收在 ../support/tea-run.ts 一处（票 #14 评审收编，与 counts.ts 同一份）。
 
 /**
  * 翻页读一页票（契约 listPage）：创建时间倒序是 tea --output json 列表的次序（远端口径），

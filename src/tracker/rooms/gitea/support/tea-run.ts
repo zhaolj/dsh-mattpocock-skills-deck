@@ -101,6 +101,17 @@ export function labelsOf(filter: ListFilter | null | undefined): string[] {
   return out
 }
 
+/**
+ * filter.state 归一（票 #14 评审收编：原先 issues/pages.ts 与 issues/counts.ts 各私有一份
+ * 同语义的实现，收进这一处）：只有 open / closed 两种收窄，其余（含缺失、含契约外的值）
+ * 都是「两种都要」（空串）。调用方拿空串自己换成 all——tea 不带 --state 默认只回 open，
+ * 会静默少一半，不许把「没给」直接透传给远端。
+ */
+export function narrowStateOf(filter: Partial<ListFilter> | null | undefined): 'open' | 'closed' | '' {
+  const state = filter && typeof filter.state === 'string' ? filter.state.trim().toLowerCase() : ''
+  return state === 'open' || state === 'closed' ? state : ''
+}
+
 /** 列表页的参数（本房词汇表的唯一出处）：state 收窄由调用方给好（open / closed / all）。 */
 export function argsIssueListPage(refId: string, state: 'open' | 'closed' | 'all', labels: string[], limitRows: number, page: number): string[] {
   const args = ['issues', 'ls', '--repo', refId, '--state', state, '--output', 'json', '--limit', String(limitRows), '--page', String(page)]
@@ -204,17 +215,3 @@ export function parseCreatedIssueKey(stdout: string): string | null {
   return m ? m[1] : null
 }
 
-/**
- * 把「这一趟读没能拿全」落进诊断日志（best-effort：上下文没带 logEvent 就跳过，不拦主流程）。
- * 事件与理由沿用宿主的读降级口径：事件 read.degraded、理由由调用方给（如 list:truncated）。
- */
-export function emitReadDegraded(effective: CtxLike | null | undefined, op: string, reason: string, elapsedMs: number): void {
-  const logEvent = effective && effective.logEvent
-  if (typeof logEvent !== 'function') return
-  try {
-    // 契约的 logEvent 是 (level, event, fields)：读降级是「结果比预期少」的旁路记录，取 warn 档。
-    logEvent('warn', 'read.degraded', { backend: 'gitea', op, reason, elapsedMs })
-  } catch {
-    // 日志是旁路：写不进去不影响读操作本身的结论。
-  }
-}

@@ -29,7 +29,6 @@ import {
   argsCommentsPage,
   argsIssueGet,
   argsIssueListPage,
-  emitReadDegraded,
   errMsg,
   labelsOf,
   parseJsonBag,
@@ -37,6 +36,8 @@ import {
   refIdOf,
   runTea,
 } from '../support/tea-run.js'
+// 读降级的登记出口在 support/read-log.ts 一处（op / reason 只取登记清单里的值，票 #14）。
+import { emitReadDegraded } from '../support/read-log.js'
 
 // 一次详情最多取多少条评论正文（与 GitLab 房 COMMENTS_MAX 同一个上限，宿主按契约最多要 200 条）。
 const COMMENTS_MAX = 200

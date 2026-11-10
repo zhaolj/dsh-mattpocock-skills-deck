@@ -20,7 +20,9 @@ import { PAGINATION } from '../../../contract/pagination.js'
 import { fail } from '../../../kernel/preflight.js'
 import { failGitea } from '../errors.js'
 import { normalizeIssue } from '../model/normalize.js'
-import { type CtxLike, argsIssueListPage, emitReadDegraded, errMsg, parseJsonRows, refIdOf, runTea } from '../support/tea-run.js'
+import { type CtxLike, argsIssueListPage, errMsg, parseJsonRows, refIdOf, runTea } from '../support/tea-run.js'
+// 读降级的登记出口在 support/read-log.ts 一处（op / reason 只取登记清单里的值，票 #14）。
+import { emitReadDegraded } from '../support/read-log.js'
 
 /**
  * 列某张地图下的子票（契约 listSubIssues）：翻页扫仓 + parentKey 匹配。
@@ -100,7 +102,8 @@ export async function listSubIssues(
     return fail(ERROR_KIND.PARSE as ErrorKind, 'listSubIssues: 扫描中有 ' + String(dropped) + ' 张票读不成，无法确认子票清单是完整的', '')
   }
   if (capped) {
-    emitReadDegraded(effective, 'listSubIssues', 'sub-issues:capped', Date.now() - startedAt)
+    // 登记清单里的取值（票 #14 收编）：撞 subIssuesMax 硬上限，按「截断」如实交代。
+    emitReadDegraded(effective, 'listSubIssues', 'listSubIssues:truncated', Date.now() - startedAt)
   }
   const data: SubIssueList = { items, total: fetched, fetched, capped, missing: 0, dropped }
   return { ok: true, data }

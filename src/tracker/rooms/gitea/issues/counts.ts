@@ -20,15 +20,11 @@ import type { Counts, OpResult } from '../../../contract/results.js'
 import { fail } from '../../../kernel/preflight.js'
 import { failGitea } from '../errors.js'
 import { PAGINATION } from '../../../contract/pagination.js'
-import { errMsg, labelsOf, parseJsonRows, refIdOf, runTea, argsIssueListPage, type CtxLike } from '../support/tea-run.js'
+import { errMsg, labelsOf, narrowStateOf, parseJsonRows, refIdOf, runTea, argsIssueListPage, type CtxLike } from '../support/tea-run.js'
 
 type FilterLike = Partial<ListFilter> | null | undefined
 
-/** filter.state 归一：只有 open / closed 两种收窄，其余（含缺失）都是「两种都要」。 */
-function narrowStateOf(filter: FilterLike): string {
-  const state = filter && typeof filter.state === 'string' ? filter.state.trim().toLowerCase() : ''
-  return state === 'open' || state === 'closed' ? state : ''
-}
+// filter.state 归一收在 ../support/tea-run.ts 一处（票 #14 评审收编，与 pages.ts 同一份）。
 
 /** 翻页扫仓数票：成功回打开/关闭两个数；扫不满（撞页数上限还是满页）或任何一页读不成，如实失败。 */
 export async function scanIssueCounts(

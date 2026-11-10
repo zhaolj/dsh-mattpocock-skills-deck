@@ -16,18 +16,20 @@ import type { ErrorKind } from '../../../contract/identity.js'
 import type { BackendContext, OpContext } from '../../../contract/contexts.js'
 import type { Issue, Label, RepositoryRef } from '../../../contract/entities.js'
 import type { AssigneeInput, LabelInput, SetOpts } from '../../../contract/inputs.js'
-import { TRACKER_ERROR_STAGE, type OpResult } from '../../../contract/results.js'
+import type { OpResult } from '../../../contract/results.js'
 import { fail } from '../../../kernel/preflight.js'
 import { normalizeIssue } from '../model/normalize.js'
 import { failGitea } from '../errors.js'
 import { fetchRawIssue } from '../issues/read.js'
+// 目标解析守卫与 expectedUpdatedAt 前置读收编在 support/ 一处（票 #14），不再各房私有。
+import { resolveTarget } from '../support/target.js'
+import { preflightExpected } from '../support/expected-preflight.js'
 import {
   type CtxLike,
   type RawBag,
   argsIssueEdit,
   errMsg,
   parseJsonBag,
-  refIdOf,
   runTea,
 } from '../support/tea-run.js'
 
@@ -78,31 +80,8 @@ function wantedLoginsOf(assignees: unknown): string[] {
   return out
 }
 
-/**
- * expectedUpdatedAt 前置读：给了这个选项就先读一次票面比对更新时间，对不上回 conflict。
- * 返回 null 表示冲突已回（调用方直接 return）；否则返回 raw 票面供写路径继续用。
- */
-async function preflightExpected(
-  effective: CtxLike | null | undefined,
-  refId: string,
-  k: string,
-  opts: SetOpts | null | undefined,
-): Promise<RawBag | OpResult<Issue> | null> {
-  if (!opts || typeof opts.expectedUpdatedAt !== 'string' || opts.expectedUpdatedAt === '') return null
-  let raw: RawBag
-  try {
-    raw = await fetchRawIssue(effective, refId, k)
-  } catch (err: unknown) {
-    // 前置读失败按读同档归一（带上下文，日志里留得下轨迹）。
-    return failGitea(err, errMsg(err), err, effective ?? undefined)
-  }
-  const curUpdated = typeof raw['updated_at'] === 'string' ? String(raw['updated_at']) : ''
-  if (curUpdated !== opts.expectedUpdatedAt) {
-    // 原文 = 回读到的票面（人据此自己核对「远端现在是什么版本」）。conflict 构造后透传，不换话。
-    return fail(ERROR_KIND.CONFLICT as ErrorKind, 'conflict: expectedUpdatedAt 不一致（期望 ' + opts.expectedUpdatedAt + '，远端 ' + curUpdated + '）', JSON.stringify(raw))
-  }
-  return raw
-}
+// expectedUpdatedAt 前置读收编在 ../support/expected-preflight.ts 一处（票 #14 评审收编），
+// setLabels / setAssignees 与 graph/write.ts 的两条结构写走同一份。
 
 /**
  * 整集替换一张票的标签（契约 setLabels）：expectedUpdatedAt 前置读，随后按「现标签 → 差集」
@@ -123,11 +102,10 @@ export async function setLabels(
   opts: SetOpts | null | undefined,
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Issue>> {
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'setLabels: repo.refId 缺失，无法向 Gitea 改标签', '')
-  const k = String(key).trim()
-  if (!k) return fail(ERROR_KIND.PARSE as ErrorKind, 'setLabels: 票号缺失', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
+  // 目标解析三行守卫收编在 support/target.ts 一处（票 #14）；各操作的原话消息在这里传进去。
+  const t = resolveTarget(ctx, repo, key, opCtx, 'setLabels', 'setLabels: repo.refId 缺失，无法向 Gitea 改标签')
+  if (!t.ok) return t.result
+  const { effective, refId, key: k } = t
   const wanted = wantedNamesOf(labels)
   try {
     let pre = await preflightExpected(effective, refId, k, opts)
@@ -187,11 +165,9 @@ export async function setAssignees(
   opts: SetOpts | null | undefined,
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Issue>> {
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'setAssignees: repo.refId 缺失，无法向 Gitea 改认领人', '')
-  const k = String(key).trim()
-  if (!k) return fail(ERROR_KIND.PARSE as ErrorKind, 'setAssignees: 票号缺失', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
+  const t = resolveTarget(ctx, repo, key, opCtx, 'setAssignees', 'setAssignees: repo.refId 缺失，无法向 Gitea 改认领人')
+  if (!t.ok) return t.result
+  const { effective, refId, key: k } = t
   const wanted = wantedLoginsOf(assignees)
   try {
     const pre = await preflightExpected(effective, refId, k, opts)

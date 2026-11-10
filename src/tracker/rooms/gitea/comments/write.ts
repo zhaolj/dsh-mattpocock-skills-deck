@@ -15,13 +15,14 @@ import type { OpResult } from '../../../contract/results.js'
 import { TRACKER_ERROR_STAGE } from '../../../contract/results.js'
 import { fail } from '../../../kernel/preflight.js'
 import { failGitea } from '../errors.js'
+// 目标解析三行守卫收编在 ../support/target.ts 一处（票 #14），写评论与其它写操作入口共用。
+import { resolveTarget } from '../support/target.js'
 import {
   type CtxLike,
   type RawBag,
   argsCommentAdd,
   errMsg,
   parseJsonBag,
-  refIdOf,
   runTea,
 } from '../support/tea-run.js'
 
@@ -43,11 +44,10 @@ export async function addComment(
   body: string,
   opCtx: CtxLike | null | undefined,
 ): Promise<OpResult<Comment>> {
-  const effective = (opCtx || ctx) as CtxLike | undefined
-  const refId = refIdOf(repo)
-  if (!refId) return fail(ERROR_KIND.NOTFOUND as ErrorKind, 'comment: repo.refId 缺失，无法向 Gitea 写评论', '')
-  const k = String(key).trim()
-  if (!k) return fail(ERROR_KIND.PARSE as ErrorKind, 'comment: 票号缺失', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
+  // 目标解析三行守卫收编在 support/target.ts 一处（票 #14）；各操作的原话消息在这里传进去。
+  const t = resolveTarget(ctx, repo, key, opCtx, 'comment', 'comment: repo.refId 缺失，无法向 Gitea 写评论')
+  if (!t.ok) return t.result
+  const { effective, refId, key: k } = t
   if (typeof body !== 'string' || !body.trim()) {
     return fail(ERROR_KIND.PARSE as ErrorKind, 'comment: 评论正文必填', '', TRACKER_ERROR_STAGE.INPUT_REFUSED)
   }

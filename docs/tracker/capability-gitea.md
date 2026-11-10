@@ -22,7 +22,7 @@
 | setLabels | 明确提供功能 | `labels/assign.ts`：tea 没有整集替换标签的参数，先读现标签算差集再发 `--add-labels` / `--remove-labels`（gitlab 房同一条纪律：expectedUpdatedAt 前置读，对不上回 conflict）；目标集合与现状一致时不发写命令 |
 | setAssignees | 明确提供功能 | `labels/assign.ts`：`tea issues edit <编号> --set-assignees a,b` 本来就是整集替换（空串清空），一步到位；expectedUpdatedAt 前置读与 setLabels 同一套，写后回读以远端为准 |
 | setParent | 明确提供功能 | `graph/write.ts`：归属的真相写进正文头的隐藏标记 `<!-- DSH-PARENT: n -->`（`model/description-markers.ts` 一处出处，拆归属顺带清旧 `Part of` 行）；写前 `expectedUpdatedAt` 前置读、父票存在性回查，写后回读核对（读侧同一解析口径）；自挂回 conflict |
-| setBlockedBy | 明确提供功能 | `graph/write.ts`：可见 `Blocked by:` 行与隐藏机器表成对整集替换（`model/description-markers.ts` 一处出处），数据源 `tea issues edit --description`；自阻塞回 conflict，写前从单页列表读邻接做环检（成环 conflict 不落盘，快照拉不到记读降级放行），写后回读深比对 |
+| setBlockedBy | 明确提供功能 | `graph/write.ts`：可见 `Blocked by:` 行与隐藏机器表成对整集替换（`model/description-markers.ts` 一处出处），数据源 `tea issues edit --description`；自阻塞回 conflict，写前读邻接做环检——先单页列表打底、再从本次要写的阻塞者出发沿边展开补拉沿途的票（展开量按 `PAGINATION.gitea.subIssuesMax` 封顶，双轴评审第 6 条对齐 GitLab 房形状），成环 conflict 不落盘，快照整体拉不到记读降级放行，写后回读深比对 |
 | counts | 明确提供功能 | `issues/counts.ts`：tea 没有统计端点，翻页扫仓数出打开/关闭两数（每页上限与最多扫几页见共享分页表 gitea 组），扫不满如实失败不许猜数；filter.state 本地收窄，与 GitHub / GitLab 房同一口径 |
 | listPage | 明确提供功能 | `issues/pages.ts`：游标是页码，`--limit`／`--page` 翻页；缺省 50、上限 200（共享分页表），total 用同一筛选口径扫出来；创建时间倒序、无下一页 nextCursor=null |
 | listLabels | 明确提供功能 | `labels/list.ts`：`tea labels ls --output json` 翻页拉全量，颜色过 `normalizeColor` 归一成不带井号的六位小写十六进制；取不全整体失败，不交残缺清单 |
@@ -32,7 +32,7 @@
 | listSubIssues | 明确提供功能 | `issues/sub-issues.ts`：翻页扫仓按归一层读出的 parentKey（隐藏标记优先）认子票，1000 张硬上限置 capped；缺编号/归一失败的行计入 dropped，全是坏行时整体失败 |
 | initProject | 明确不支持 | 本实例显式桩（`index.ts` 工厂直接交 fail(unsupported)，不再是注册表补桩）：`tea repos create` 存在，但「建仓＋git init＋首次推送」全链路未经真机验证，硬接只会交半成品；将来真机验证通过后改真实现（先开承接票再动手） |
 | ensureLabelColorsFile | 明确不支持 | 本实例显式桩（同 GitHub / GitLab 同一条理由，不是欠账）：颜色真源在远端仓库标签，工作区配色文件没有任何读者，「放一份手改就生效的文件」在这个后端上不成立 |
-| readBudget | 明确提供功能 | `budget.ts`：恒回「没量出来」（`known: false, reason: 'unsupported'`）且永不失败——Gitea API 没有账号级配额端点、tea 也不透出 HTTP 速率响应头，没有水位可量，如实说「没有量」不猜数；模块预算口径仍按「只计请求」声明（`budget: { kind: 'requests-only' }`）；将来 tea 透出速率头或 Gitea 出配额端点时在这里量水位 |
+| readBudget | 明确提供功能 | `budget.ts`：恒回「没量出来」（`known: false, reason: 'unsupported'`）且永不失败——Gitea API 没有账号级配额端点、tea 也不透出 HTTP 速率响应头，没有水位可量，如实说「没有量」不猜数；模块预算口径仍按「只计请求」声明（`budget: { kind: 'requests-only' }`）；将来 tea 透出速率头或 Gitea 出配额端点时在这里量水位。档位背书（双轴评审第 5 条）：契约对 readBudget 的承诺是「永远放行、不记账」（`contract/README.md`），它不收任何输入，不存在「某几种输入对不上」的 partially-provided 形态；`known: false` 的读数分支正是为量不出水位的后端准备的合法回话（`contract/budget-model.ts`、`contract/operations.ts`），本地 Markdown 房同形先例同样登记 provided |
 | listMaps | 明确提供功能 | `issues/maps.ts`：`tea issues ls --labels wayfinder:map` 两态一起扫，按创建时间倒序翻页、交前按更新时间重排；撞页数上限置 truncated，单页失败整趟失败 |
 
 ## 定位口（3 条全部提供）
