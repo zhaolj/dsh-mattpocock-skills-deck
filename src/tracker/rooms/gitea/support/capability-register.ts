@@ -24,13 +24,14 @@
 import type { CapabilityRegister } from '../../../contract/capability-answer.js'
 
 /**
- * gitea 后端：27 条能力里 18 条真提供（探活、两个定位口，加票 #11 的 8 条读操作与票 #12 的 7 条写操作、票 #13 的 2 条结构写），
- * 6 条操作由注册表补桩、明确不支持。
+ * gitea 后端：27 条能力里 22 条真提供（探活、两个定位口，加票 #11 的 8 条读操作、票 #12 的 7 条写操作、
+ * 票 #13 的 2 条结构写与票 #14 的 4 条管理类操作），2 条操作由后端实例显式桩、明确不支持（票 #14）。
  *
  * 顺序照契约名录（24 条操作在前、3 条定位口在后），读的人可以两边对着看。
  */
 export const GITEA_CAPABILITY_REGISTER = {
-  // —— 操作 24 条：探活、8 条读操作（票 #11）与 9 条写操作（票 #12、#13）真实现，其余 6 条由注册表补桩、明确不支持 ——
+  // —— 操作 24 条：探活、8 条读操作（票 #11）、9 条写操作（票 #12、#13）与 4 条管理类操作（票 #14）真实现，
+  //    其余 2 条由后端实例显式桩、明确不支持 ——
   preflight: { tier: 'provided' },
   list: { tier: 'provided' },
   get: { tier: 'provided' },
@@ -49,14 +50,23 @@ export const GITEA_CAPABILITY_REGISTER = {
   counts: { tier: 'provided' },
   listPage: { tier: 'provided' },
   listLabels: { tier: 'provided' },
-  setLabelColors: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  getCurrentUser: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  getRepoPermissions: { tier: 'unsupported-by-design', stubBy: 'registry' },
+  // 票 #14 的 4 条管理类操作：改色在 labels/colors.ts（tea labels update 只认 id，先建「名字→id」对照），
+  // 当前登录人在 repo/current-user.ts（tea logins ls 的 default 项），权限读在 repo/permissions.ts
+  // （tea repos ls 翻页扫仓），读预算在 budget.ts（Gitea 无配额端点、tea 不透出速率头，如实回「没量出来」）。
+  setLabelColors: { tier: 'provided' },
+  getCurrentUser: { tier: 'provided' },
+  getRepoPermissions: { tier: 'provided' },
   listSubIssues: { tier: 'provided' },
-  initProject: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  ensureLabelColorsFile: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  // 读预算：tea 这一房还没有量请求桶水位的实现，注册表补桩。补实现时把这一行改回 provided 并建 md 表。
-  readBudget: { tier: 'unsupported-by-design', stubBy: 'registry' },
+  // 票 #14 的两条诚实桩（stubBy:'backend'，工厂实例上交 fail(unsupported)）：
+  //   · initProject —— `tea repos create` 存在，但「建仓＋git init＋首次推送」全链路未经真机验证，
+  //     硬接只会交半成品；将来真机验证通过后改真实现（先开承接票再动手）。
+  //   · ensureLabelColorsFile —— 颜色真源在远端仓库标签，工作区配色文件没有任何读者，
+  //     「放一份手改就生效的文件」在这个后端上不成立（GitHub / GitLab 同一条理由，不是欠账）。
+  initProject: { tier: 'unsupported-by-design', stubBy: 'backend' },
+  ensureLabelColorsFile: { tier: 'unsupported-by-design', stubBy: 'backend' },
+  // 读预算（票 #14）：Gitea API 没有账号级配额端点、tea 不透出速率响应头，没有水位可量——
+  // 实现恒回 { known: false, reason: 'unsupported' }（budget.ts），如实说「没有量」，不猜一个数。
+  readBudget: { tier: 'provided' },
   listMaps: { tier: 'provided' },
 
   // —— 定位口 3 条：getRepoKey 实现为「名字或空」，describe 与 issueAddress 真提供 ——

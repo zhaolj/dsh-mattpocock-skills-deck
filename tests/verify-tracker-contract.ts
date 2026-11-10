@@ -724,6 +724,150 @@ try {
     const ok = !res.ok && res.error.kind === 'conflict' && !fake.calls.some((x) => x.args[1] === 'edit')
     results.push({ name: 'gitea-minimal · write setBlockedBy conflict on stale expectedUpdatedAt without write', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
   }
+  // ── 票 #14 的六条管理类操作：setLabelColors / getCurrentUser / getRepoPermissions / readBudget /
+  // initProject / ensureLabelColorsFile ──
+  // 管理类的假 tea：标签带 id（tea labels update 只认 id）、logins ls、repos ls 的参数形状按本机 tea 0.16.0 实测。
+  function makeAdminFakeTea(opts) {
+    const calls = []
+    const labels = (opts && opts.labels ? opts.labels : [
+      { name: 'bug', color: 'd73a4a' },
+      { name: 'wayfinder:map', color: '8b5cf6' },
+    ]).map((x, i) => Object.assign({ id: i + 1 }, x))
+    const repos = (opts && opts.repos) || []
+    const logins = (opts && opts.logins) || []
+    const updated = []
+    return {
+      calls,
+      labels,
+      updated,
+      exec: async (cmd, args) => {
+        calls.push({ cmd, args })
+        const flag = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined }
+        if (cmd !== 'tea') return { stdout: '', stderr: 'unexpected cmd ' + cmd, code: 127 }
+        if (args[0] === 'labels' && args[1] === 'ls') {
+          if (opts && opts.labelsLsFails) return { stdout: '', stderr: '500 server error', code: 1 }
+          const limit = Number(flag('--limit') || 50)
+          const page = Number(flag('--page') || 1)
+          return { stdout: JSON.stringify(labels.slice((page - 1) * limit, page * limit)), stderr: '', code: 0 }
+        }
+        if (args[0] === 'labels' && args[1] === 'update') {
+          const id = Number(flag('--id'))
+          const color = flag('--color') || ''
+          const hit = labels.find((x) => x.id === id)
+          if (!hit) return { stdout: '', stderr: 'label does not exist', code: 1 }
+          hit.color = color
+          updated.push({ name: hit.name, color })
+          return { stdout: JSON.stringify(hit), stderr: '', code: 0 }
+        }
+        if (args[0] === 'logins' && args[1] === 'ls') {
+          if (opts && opts.loginsRaw !== undefined) return { stdout: opts.loginsRaw, stderr: '', code: 0 }
+          return { stdout: JSON.stringify(logins), stderr: '', code: 0 }
+        }
+        if (args[0] === 'repos' && args[1] === 'ls') {
+          const limit = Number(flag('--limit') || 50)
+          const page = Number(flag('--page') || 1)
+          return { stdout: JSON.stringify(repos.slice((page - 1) * limit, page * limit)), stderr: '', code: 0 }
+        }
+        return { stdout: '', stderr: 'unexpected args ' + args.join(' '), code: 127 }
+      },
+    }
+  }
+  // setLabelColors：合法颜色逐条发 tea labels update（颜色归一后发），非法颜色与不存在的标签各落一条 failed，逐条恰好二选一。
+  {
+    const fake = makeAdminFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.setLabelColors(repo, [
+      { name: 'bug', color: '#D73A4A' },
+      { name: 'wayfinder:map', color: '8b5cf6' },
+      { name: 'badcolor', color: 'zzzzzz' },
+      { name: 'ghost', color: '00ff00' },
+    ], fake)
+    const applied = res.ok ? res.data.applied : []
+    const failed = res.ok ? res.data.failed : []
+    const ok = res.ok
+      && applied.length === 2
+      && applied.some((x) => x.name === 'bug' && x.color === 'd73a4a')
+      && applied.every((x) => !x.color.startsWith('#'))
+      && failed.length === 2
+      && failed.some((x) => x.name === 'badcolor' && x.reason.kind === 'parse')
+      && failed.some((x) => x.name === 'ghost' && x.reason.kind === 'not-found')
+      && fake.updated.length === 2
+      && fake.updated.every((x) => !x.color.startsWith('#'))
+    results.push({ name: 'gitea-minimal · admin setLabelColors applies valid entries and rejects invalid per entry', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 400) })
+  }
+  // setLabelColors：前置读标签失败整条失败，不发任何写命令。
+  {
+    const fake = makeAdminFakeTea({ labelsLsFails: true })
+    const backend = createGiteaBackend(fake)
+    const res = await backend.setLabelColors(repo, [{ name: 'bug', color: '00ff00' }], fake)
+    const ok = !res.ok && res.error.kind === 'network' && fake.updated.length === 0
+    results.push({ name: 'gitea-minimal · admin setLabelColors fails whole op when label prefetch fails', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  // getCurrentUser：取标了 default 的登录项的 user 字段（tea whoami 不出 JSON，走 logins ls）。
+  {
+    const fake = makeAdminFakeTea({ logins: [
+      { name: 'work', url: 'https://g1.example', user: 'alice', default: 'false' },
+      { name: 'home', url: 'https://g2.example', user: 'bob', default: 'true' },
+    ] })
+    const backend = createGiteaBackend(fake)
+    const res = await backend.getCurrentUser(repo, fake)
+    const ok = res.ok && res.data.login === 'bob'
+    results.push({ name: 'gitea-minimal · admin getCurrentUser reads default login user', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 200) })
+  }
+  // getCurrentUser：没有 default 标记但恰一条登录时取它；回包不成形状时如实失败。
+  {
+    const fake = makeAdminFakeTea({ logins: [{ name: 'solo', url: 'https://g.example', user: 'carol' }] })
+    const backend = createGiteaBackend(fake)
+    const res = await backend.getCurrentUser(repo, fake)
+    const bad = makeAdminFakeTea({ loginsRaw: 'not json' })
+    const res2 = await backend.getCurrentUser(repo, bad)
+    const ok = res.ok && res.data.login === 'carol' && !res2.ok && res2.error.kind === 'parse'
+    results.push({ name: 'gitea-minimal · admin getCurrentUser single login fallback and parse failure', ok, detail: ok ? '' : JSON.stringify({ res, res2: res2 && res2.error }).slice(0, 300) })
+  }
+  // getRepoPermissions：翻页扫仓找到当前仓库，write 档 push 与 triage 都是 true（命中在第 2 页，钉翻页行为）。
+  {
+    const repos = Array.from({ length: 60 }, (_, i) => ({ owner: 'x' + i, name: 'p' + i, permission: 'read' }))
+    repos[55] = { owner: 'o', name: 'r', permission: 'write' }
+    const fake = makeAdminFakeTea({ repos })
+    const backend = createGiteaBackend(fake)
+    const res = await backend.getRepoPermissions(repo, fake)
+    const pagedTo2 = fake.calls.some((c) => c.args.includes('--page') && c.args[c.args.indexOf('--page') + 1] === '2')
+    const ok = res.ok && res.data.push === true && res.data.triage === true && pagedTo2
+    results.push({ name: 'gitea-minimal · admin getRepoPermissions scans pages and maps write to push+triage', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 200) })
+  }
+  // getRepoPermissions：read 档都是 false；未知档位与清单里找不到各自如实失败，不捏造。
+  {
+    const ro = makeAdminFakeTea({ repos: [{ owner: 'o', name: 'r', permission: 'read' }] })
+    const backendRo = createGiteaBackend(ro)
+    const resRo = await backendRo.getRepoPermissions(repo, ro)
+    const unknown = makeAdminFakeTea({ repos: [{ owner: 'o', name: 'r', permission: 'maintainer' }] })
+    const backendUnknown = createGiteaBackend(unknown)
+    const resUnknown = await backendUnknown.getRepoPermissions(repo, unknown)
+    const missing = makeAdminFakeTea({ repos: [{ owner: 'a', name: 'b', permission: 'read' }] })
+    const backendMissing = createGiteaBackend(missing)
+    const resMissing = await backendMissing.getRepoPermissions(repo, missing)
+    const ok = resRo.ok && resRo.data.push === false && resRo.data.triage === false
+      && !resUnknown.ok && resUnknown.error.kind === 'parse'
+      && !resMissing.ok && resMissing.error.kind === 'not-found'
+    results.push({ name: 'gitea-minimal · admin getRepoPermissions read maps false and unknown/missing fail honestly', ok, detail: ok ? '' : JSON.stringify({ resRo, u: resUnknown && resUnknown.error, m: resMissing && resMissing.error }).slice(0, 300) })
+  }
+  // readBudget：Gitea 无配额端点、tea 不透出速率头，恒回「没量出来」的 unsupported 档，永不抛。
+  {
+    const fake = makeAdminFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.readBudget(fake)
+    const ok = res.ok && res.data && res.data.known === false && res.data.reason === 'unsupported'
+    results.push({ name: 'gitea-minimal · admin readBudget returns honest unsupported reading', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 200) })
+  }
+  // initProject / ensureLabelColorsFile：后端实例上的诚实桩（不再是注册表补桩），如实回 unsupported。
+  {
+    const fake = makeAdminFakeTea()
+    const backend = createGiteaBackend(fake)
+    const a = await backend.initProject(repo, { name: 'fresh' }, fake)
+    const b = await backend.ensureLabelColorsFile(repo, fake)
+    const ok = !a.ok && a.error.kind === 'unsupported' && !b.ok && b.error.kind === 'unsupported'
+    results.push({ name: 'gitea-minimal · admin initProject and ensureLabelColorsFile honest unsupported stubs', ok, detail: ok ? '' : JSON.stringify({ a: a && a.error, b: b && b.error }).slice(0, 300) })
+  }
 } catch (e) {
   results.push({ name: 'gitea-minimal · import-failed', ok: false, detail: String(e && e.message || e) })
 }

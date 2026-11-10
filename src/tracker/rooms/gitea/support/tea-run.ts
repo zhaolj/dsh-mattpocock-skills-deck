@@ -21,6 +21,10 @@
  *           [--remove-labels a,b] [--set-assignees a,b] [--milestone M|''] --output json
  *           （tea 没有 --labels 整集替换，setLabels 先读现标签再算 add/remove 差集）
  *   评注：  tea comments add <编号> --repo <refId> --description <正文> --output json
+ *   改色：  tea labels update --id <数字id> --color <六位十六进制> --repo <refId> --output json
+ *           （update 只认标签的数字 id，不认名字：改色前先翻页拉一遍「名字→id」对照）
+ *   登录：  tea logins ls --output json（default 标默认登录，user 字段是登录名；tea whoami 不出 JSON）
+ *   扫仓：  tea repos ls --output json --fields owner,name,permission --limit N --page P（权限读用）
  */
 
 import type { BackendContext, ExecResult, OpContext } from '../../../contract/contexts.js'
@@ -117,6 +121,26 @@ export function argsCommentsPage(refId: string, key: string | number, limitRows:
 /** 标签一页的参数。 */
 export function argsLabelsPage(refId: string, limitRows: number, page: number): string[] {
   return ['labels', 'ls', '--repo', refId, '--output', 'json', '--limit', String(limitRows), '--page', String(page)]
+}
+
+// ── 管理与杂项的参数（票 #14）：同样只在这一处拼 ──────────────────────────
+
+/**
+ * 改一条标签颜色的参数：tea labels update 认标签的数字 id（不认名字），颜色给归一后的
+ * 六位十六进制（不带井号）。调用方先用 argsLabelsPage 建好「名字→id」对照再发这条。
+ */
+export function argsLabelUpdate(refId: string, id: number | string, color: string): string[] {
+  return ['labels', 'update', '--id', String(id), '--color', color, '--repo', refId, '--output', 'json']
+}
+
+/** 登录清单的参数：回包数组里 default 标了默认登录，user 字段就是登录名（tea 实测 0.16.0）。 */
+export function argsLoginList(): string[] {
+  return ['logins', 'ls', '--output', 'json']
+}
+
+/** 权限扫仓一页的参数：只要 owner/name/permission 三个字段，按 refId 匹配找当前仓库。 */
+export function argsRepoScanPage(limitRows: number, page: number): string[] {
+  return ['repos', 'ls', '--output', 'json', '--fields', 'owner,name,permission', '--limit', String(limitRows), '--page', String(page)]
 }
 
 // ── 写路径的参数（票 #12）：同样只在这一处拼，操作文件只挑词汇 ──────────────────

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-10T19:00:44.464Z",
+  "generatedAt": "2026-11-10T19:43:12.362Z",
   "generatedBy": "node scripts/gate-map.mts",
   "chainLength": 601,
   "gateCount": 601,
@@ -10,7 +10,7 @@
   "completionRecordedGates": 143,
   "smokeLength": 8,
   "smokeCompletionRecordedGates": 5,
-  "graphFileCount": 983,
+  "graphFileCount": 987,
   "gates": [
     {
       "step": "node tests/verify-1207-splice-ts.ts",
@@ -16623,9 +16623,9 @@
   },
   "coverage": {
     "sourceRoot": "src",
-    "fileCount": 1006,
-    "dirCount": 109,
-    "coveredFileCount": 1006,
+    "fileCount": 1010,
+    "dirCount": 110,
+    "coveredFileCount": 1010,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
     "dedicatedDirCount": 83,
@@ -17406,6 +17406,7 @@
       "src/tracker/registry/shape.ts",
       "src/tracker/registry/views.ts",
       "src/tracker/rooms/README.md",
+      "src/tracker/rooms/gitea/budget.ts",
       "src/tracker/rooms/gitea/comments/write.ts",
       "src/tracker/rooms/gitea/errors.ts",
       "src/tracker/rooms/gitea/graph/read.ts",
@@ -17418,10 +17419,13 @@
       "src/tracker/rooms/gitea/issues/sub-issues.ts",
       "src/tracker/rooms/gitea/issues/write.ts",
       "src/tracker/rooms/gitea/labels/assign.ts",
+      "src/tracker/rooms/gitea/labels/colors.ts",
       "src/tracker/rooms/gitea/labels/list.ts",
       "src/tracker/rooms/gitea/model/description-markers.ts",
       "src/tracker/rooms/gitea/model/normalize.ts",
       "src/tracker/rooms/gitea/preflight.ts",
+      "src/tracker/rooms/gitea/repo/current-user.ts",
+      "src/tracker/rooms/gitea/repo/permissions.ts",
       "src/tracker/rooms/gitea/room/links.ts",
       "src/tracker/rooms/gitea/room/prompts.ts",
       "src/tracker/rooms/gitea/support/capability-register.ts",
@@ -17713,6 +17717,7 @@
       "src/tracker/rooms/gitea/issues",
       "src/tracker/rooms/gitea/labels",
       "src/tracker/rooms/gitea/model",
+      "src/tracker/rooms/gitea/repo",
       "src/tracker/rooms/gitea/room",
       "src/tracker/rooms/gitea/support",
       "src/tracker/rooms/github",
@@ -17908,6 +17913,10 @@
       },
       {
         "path": "src/tracker/rooms/gitea/labels",
+        "fileCount": 3
+      },
+      {
+        "path": "src/tracker/rooms/gitea/repo",
         "fileCount": 2
       },
       {

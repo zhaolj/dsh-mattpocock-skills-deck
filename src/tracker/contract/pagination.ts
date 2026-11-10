@@ -97,6 +97,10 @@ export const PAGINATION = {
     countScanMaxPages: 100,
     // 地图薄查最多翻几页：与 GitHub / GitLab 房同一个契约上限。
     mapListMaxPages: 10,
+    // 权限扫仓（getRepoPermissions，票 #14）：tea repos ls 翻页找当前仓库，一页 50 条、最多 100 页；
+    // 只是在清单里找一行，找不到如实失败，不需要取全清单。
+    repoScanPerPage: 50,
+    repoScanMaxPages: 100,
   },
   markdown: {
     // 本地 Markdown 房只有分页契约这一组数字：缺省 50、上限 200，与另外两房同一口径。

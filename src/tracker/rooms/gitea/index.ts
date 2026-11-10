@@ -3,9 +3,9 @@
  *
  * #2 的「最小 room」：入口交出模块对象、工厂与识别（matches / describe），外加 preflight、
  * 错误判档（errors.ts）与命令词汇表（room/prompts.ts，cli 是 tea）。能力名录里交的是登记数据
- * 声明为 provided 的那些操作（探活、定位口，票 #11 起的 8 条读路径、票 #12 的 7 条写路径与票 #13 的 2 条结构写）；
- * 没实现的那些由注册表的
- * Proxy 补「我不支持」的桩，房间自己不造布尔能力表，也不交半成品操作。
+ * 声明为 provided 的那些操作（探活、定位口，票 #11 的 8 条读路径、票 #12 的 7 条写路径、票 #13 的 2 条结构写
+ * 与票 #14 的 4 条管理类操作）；票 #14 起那两条明确不支持的（initProject / ensureLabelColorsFile）
+ * 也由本实例自己交诚实回「不支持」的桩（登记 stubBy:'backend'），房间自己不造布尔能力表，也不交半成品操作。
  *
  * 仿 GitLab 房（src/tracker/rooms/gitlab/index.ts）的形状起骨架；本文件交的成员集合不受
  * `src/tracker/capability-assertions.ts` 的编译期断言钉（那份断言今天只钉 GitHub/GitLab/Markdown
@@ -26,7 +26,7 @@ import { remoteUrlsOfGitConfig } from '../../kernel/git-remote.js'
 import { normalizeTrackerText, parseIssueTracker } from '../../kernel/issue-tracker-declaration.js'
 import { issueAddress, repoSearchAddress, DEFAULT_GITEA_WEB_ORIGIN } from './room/links.js'
 import { prompts } from './room/prompts.js'
-import type { ProvidedCapability } from '../../contract/capability-answer.js'
+import type { ProvidedCapability, StubbedByBackend } from '../../contract/capability-answer.js'
 import type { GITEA_CAPABILITY_REGISTER } from './support/capability-register.js'
 import { listIssues, getIssue } from './issues/read.js'
 // 票 #12 的 7 条写路径：建/关/开/改在 issues/write.ts，标签与认领人在 labels/assign.ts，评论在 comments/write.ts。
@@ -41,6 +41,15 @@ import { listLabels } from './labels/list.js'
 import { getDependencies } from './graph/read.js'
 // 票 #13 的 2 条结构写：归属与阻塞写进正文（隐藏标记优先、可见行兜底），实现见 graph/write.ts。
 import { setParent, setBlockedBy } from './graph/write.js'
+// 票 #14 的 4 条管理类操作：改色在 labels/colors.ts，当前登录人与权限读在 repo/，读预算在 budget.ts。
+import { setLabelColors } from './labels/colors.js'
+import { getCurrentUser } from './repo/current-user.js'
+import { getRepoPermissions } from './repo/permissions.js'
+import { readBudget } from './budget.js'
+// 两条诚实桩（stubBy:'backend'）用 fail 落契约的失败形状；理由见 support/capability-register.ts 对应行。
+import { fail } from '../../kernel/preflight.js'
+import { ERROR_KIND } from '../../contract/vocabulary.js'
+import type { ErrorKind } from '../../contract/identity.js'
 
 /** 识别这一趟要用的文件服务：就用契约上下文里那一格，不另定义形状。 */
 type MarkerFs = OpContext['fs']
@@ -138,11 +147,16 @@ export function describe(
 }
 
 /**
- * 工厂实例上真正存在的成员集合：id 之外的全部名字由登记数据推出来（provided 那几条）。
- * 没登记为 provided 的操作不在这里出现——注册表的 Proxy 会按名录给它们补「不支持」的桩。
+ * 工厂实例上真正存在的成员集合：id 之外的全部名字由登记数据推出来（provided 与 stubBy:'backend' 那几条）。
+ * 两档之外的操作不在这里出现——注册表的 Proxy 会按名录给它们补「不支持」的桩。
  * 编译期拿这个类型钉工厂返回值，多交、少交都会当场红（GitLab 房同一套形状判定）。
  */
-export type GiteaBackendMembers = 'id' | ProvidedCapability<typeof GITEA_CAPABILITY_REGISTER>
+export type GiteaBackendMembers =
+  | 'id'
+  | ProvidedCapability<typeof GITEA_CAPABILITY_REGISTER>
+  // 票 #14 起 initProject / ensureLabelColorsFile 是本实例自己交的诚实桩（stubBy:'backend'），
+  // 成员集合按登记数据把这一档也算进来（markdown 房同一套形状）。
+  | StubbedByBackend<typeof GITEA_CAPABILITY_REGISTER>
 
 /** 成员名字映射回契约签名：工厂的返回类型用它，写错参数或返回类型当场编译红（gitlab 房同款两步）。 */
 export type GiteaBackendShape = { [K in GiteaBackendMembers]: Tracker[K] }
@@ -207,6 +221,14 @@ export function createGiteaBackend(ctx: BackendContext): GiteaBackendShape {
     // 票 #13 的 2 条结构写：签名按契约 Tracker 钉，词汇表在 support/tea-run.ts。
     setParent: (repo, key, parentKey, opts, opCtx) => setParent(ctx, repo, key, parentKey, opts, opCtx || ctx),
     setBlockedBy: (repo, key, blockers, opts, opCtx) => setBlockedBy(ctx, repo, key, blockers, opts, opCtx || ctx),
+    // 票 #14 的 4 条管理类操作：签名按契约 Tracker 钉，词汇表在 support/tea-run.ts。
+    setLabelColors: (repo, changes, opCtx) => setLabelColors(repo, changes, opCtx || ctx),
+    getCurrentUser: (repo, opCtx) => getCurrentUser(repo, opCtx || ctx),
+    getRepoPermissions: (repo, opCtx) => getRepoPermissions(repo, opCtx || ctx),
+    readBudget: (opCtx) => readBudget(opCtx || ctx),
+    // 票 #14 的两条诚实桩（登记 stubBy:'backend'）：不是注册表补的桩，是本实例自己如实回「不支持」。
+    initProject: () => Promise.resolve(fail(ERROR_KIND.UNSUPPORTED as ErrorKind, 'initProject: gitea 房暂不承接开仓发布——tea repos create 存在，但「建仓＋git init＋首次推送」全链路未经真机验证，硬接只会交半成品；验证通过后改真实现', '')),
+    ensureLabelColorsFile: () => Promise.resolve(fail(ERROR_KIND.UNSUPPORTED as ErrorKind, 'ensureLabelColorsFile: 颜色真源在远端仓库标签，工作区配色文件没有任何读者，这个形态在 Gitea 后端上不成立（GitHub / GitLab 同一条理由）', '')),
     getRepoKey: async (cwd: string, opCtx: OpContext | null | undefined) => {
       const exec = opCtx && opCtx.exec
       if (!exec || typeof cwd !== 'string' || !cwd) return null

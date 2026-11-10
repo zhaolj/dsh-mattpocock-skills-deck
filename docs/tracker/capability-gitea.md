@@ -1,12 +1,12 @@
 # Gitea 后端能力登记表
 
-票 #3 的交付物（2026-11-10）。登记口径同 GitHub / GitLab / Markdown 那三份，一条一条对照实现落笔，不估。
+票 #3 的交付物（2026-11-10），票 #14 完成最后六条管理类操作的收口。登记口径同 GitHub / GitLab / Markdown 那三份，一条一条对照实现落笔，不估。
 
-四类的判据写在 `src/tracker/contract/capability-answer.ts` 的文件头。gitea 房目前的账：探活（preflight）、三个定位口、8 条读操作与 9 条写操作已经落地（票 #2 起骨架、票 #3 补齐定位口、票 #11 补读路径、票 #12 补写路径、票 #13 补结构写），其余 6 条操作全部**明确不支持**、由注册表按名录补桩——调用这些操作得到的是规范的「不支持」失败，不是方法缺失。归一层（normalizeIssue 的完整映射、labels 与 blocked_by / Blocked-by 双路径）已按契约对齐，补实现的操作直接复用。
+四类的判据写在 `src/tracker/contract/capability-answer.ts` 的文件头。gitea 房目前的账：探活（preflight）、三个定位口、8 条读操作、9 条写操作与 4 条管理类操作已经落地（票 #2 起骨架、票 #3 补齐定位口、票 #11 补读路径、票 #12 补写路径、票 #13 补结构写、票 #14 补管理类），其余 2 条操作（initProject / ensureLabelColorsFile）**明确不支持**、由本实例自己交诚实回「不支持」的桩——调用它们得到的是规范的「不支持」失败，不是方法缺失，也不再是注册表补桩形态（至此 gitea 房没有 registry 桩）。归一层（normalizeIssue 的完整映射、labels 与 blocked_by / Blocked-by 双路径）已按契约对齐，补实现的操作直接复用。
 
-实现真源：`src/tracker/rooms/gitea/index.ts`（工厂交 preflight + describe / issueAddress / getRepoKey 三条定位口，加票 #11 的 8 条读操作、票 #12 的 7 条写操作与票 #13 的 2 条结构写）。命令面是 Gitea CLI（tea），词汇表与错误修复指引在 `rooms/gitea/room/prompts.ts`，错误判档的 tea 专有条目在 `rooms/gitea/errors.ts`。
+实现真源：`src/tracker/rooms/gitea/index.ts`（工厂交 preflight + describe / issueAddress / getRepoKey 三条定位口，加票 #11 的 8 条读操作、票 #12 的 7 条写操作、票 #13 的 2 条结构写与票 #14 的 4 条管理类操作，以及 2 条诚实桩）。命令面是 Gitea CLI（tea），词汇表与错误修复指引在 `rooms/gitea/room/prompts.ts`，错误判档的 tea 专有条目在 `rooms/gitea/errors.ts`。
 
-## 操作（24 条中：18 条明确提供功能、6 条明确不支持）
+## 操作（24 条中：22 条明确提供功能、2 条明确不支持）
 
 | 能力 | 登记 | 依据 |
 |---|---|---|
@@ -26,13 +26,13 @@
 | counts | 明确提供功能 | `issues/counts.ts`：tea 没有统计端点，翻页扫仓数出打开/关闭两数（每页上限与最多扫几页见共享分页表 gitea 组），扫不满如实失败不许猜数；filter.state 本地收窄，与 GitHub / GitLab 房同一口径 |
 | listPage | 明确提供功能 | `issues/pages.ts`：游标是页码，`--limit`／`--page` 翻页；缺省 50、上限 200（共享分页表），total 用同一筛选口径扫出来；创建时间倒序、无下一页 nextCursor=null |
 | listLabels | 明确提供功能 | `labels/list.ts`：`tea labels ls --output json` 翻页拉全量，颜色过 `normalizeColor` 归一成不带井号的六位小写十六进制；取不全整体失败，不交残缺清单 |
-| setLabelColors | 明确不支持 | 注册表补桩 |
-| getCurrentUser | 明确不支持 | 注册表补桩 |
-| getRepoPermissions | 明确不支持 | 注册表补桩 |
+| setLabelColors | 明确提供功能 | `labels/colors.ts`：先 `tea labels ls` 翻页拉「名字→id」对照（tea labels update 只认标签的数字 id、不认名字），再逐条 `tea labels update --id <id> --color <归一色> --repo <refId>`；颜色不合法→该条 parse、标签不存在→该条 not-found、远端失败按错误判档，每条恰好落 applied 或 failed 之一；applied.color 是写下去的目标值不回读；前置拉标签失败整条失败（对照残缺时改色就是在猜） |
+| getCurrentUser | 明确提供功能 | `repo/current-user.ts`：`tea logins ls --output json` 取标了 default 的登录项的 user 字段（tea whoami 不出 JSON，不走它）；没有 default 标记但恰一条登录时取它；认不出唯一默认登录如实 parse 失败，不猜「我是谁」 |
+| getRepoPermissions | 明确提供功能 | `repo/permissions.ts`：`tea repos ls --output json --fields owner,name,permission` 翻页扫（分页额度在共享分页表 gitea 组的 repoScan 两条），按 refId 的 owner/name 对行；write/admin/owner→push 与 triage 都 true（Gitea 的写权限天然带工单与标签管理权）、read→都 false；清单外的怪档位与扫完没找到该仓各自如实失败（parse / not-found），不捏造布尔 |
 | listSubIssues | 明确提供功能 | `issues/sub-issues.ts`：翻页扫仓按归一层读出的 parentKey（隐藏标记优先）认子票，1000 张硬上限置 capped；缺编号/归一失败的行计入 dropped，全是坏行时整体失败 |
-| initProject | 明确不支持 | 注册表补桩 |
-| ensureLabelColorsFile | 明确不支持 | 注册表补桩 |
-| readBudget | 明确不支持 | 注册表补桩；模块预算口径已按「只计请求」声明（`budget: { kind: 'requests-only' }`），读响应头量水位的实现随操作一起补 |
+| initProject | 明确不支持 | 本实例显式桩（`index.ts` 工厂直接交 fail(unsupported)，不再是注册表补桩）：`tea repos create` 存在，但「建仓＋git init＋首次推送」全链路未经真机验证，硬接只会交半成品；将来真机验证通过后改真实现（先开承接票再动手） |
+| ensureLabelColorsFile | 明确不支持 | 本实例显式桩（同 GitHub / GitLab 同一条理由，不是欠账）：颜色真源在远端仓库标签，工作区配色文件没有任何读者，「放一份手改就生效的文件」在这个后端上不成立 |
+| readBudget | 明确提供功能 | `budget.ts`：恒回「没量出来」（`known: false, reason: 'unsupported'`）且永不失败——Gitea API 没有账号级配额端点、tea 也不透出 HTTP 速率响应头，没有水位可量，如实说「没有量」不猜数；模块预算口径仍按「只计请求」声明（`budget: { kind: 'requests-only' }`）；将来 tea 透出速率头或 Gitea 出配额端点时在这里量水位 |
 | listMaps | 明确提供功能 | `issues/maps.ts`：`tea issues ls --labels wayfinder:map` 两态一起扫，按创建时间倒序翻页、交前按更新时间重排；撞页数上限置 truncated，单页失败整趟失败 |
 
 ## 定位口（3 条全部提供）
@@ -49,6 +49,7 @@
 - 2026-11-11（票 #11 落地）：8 条读操作改为明确提供功能（list / get / getDependencies / counts / listPage / listLabels / listSubIssues / listMaps），数据源是 tea 的读命令（`tea issues ls` / `tea issues <编号>` / `tea issues <编号> comments` / `tea labels ls`），分页额度收进共享分页表的 gitea 组；其余 15 条操作仍明确不支持。
 - 2026-11-11（票 #13 落地）：2 条结构写改为明确提供功能（setParent / setBlockedBy），数据源是 `tea issues edit --description` 整篇正文替换（tea 没有父子与阻塞端点）：归属写隐藏标记 `<!-- DSH-PARENT: n -->`，阻塞按可见行与隐藏机器表成对写；写前 `expectedUpdatedAt` 前置读与环检、写后回读核对，与读侧票 #11 的解析同一口径；其余 6 条操作仍明确不支持。
 - 2026-11-11（票 #12 落地）：7 条写操作改为明确提供功能（create / close / reopen / comment / update / setLabels / setAssignees），数据源是 tea 的写命令（`tea issues create` / `tea issues close` / `tea issues reopen` / `tea issues edit` / `tea comments add`，参数按本机 tea 0.16.0 的 help 逐条核对）；setLabels 因 tea 无整集替换参数改为「先读现标签算差集再 add/remove」；其余 8 条操作仍明确不支持。
+- 2026-11-11（票 #14 落地）：最后六条管理类操作收口——setLabelColors / getCurrentUser / getRepoPermissions / readBudget 改为明确提供功能（数据源分别是 `tea labels update`、`tea logins ls`、`tea repos ls`，以及「Gitea 无配额端点、tea 不透出速率头」的如实回空读数）；initProject 与 ensureLabelColorsFile 仍明确不支持，但桩从注册表补改为后端实例显式桩（登记 stubBy:'backend'），理由写进登记数据与本表；新增共享分页常量 repoScanPerPage / repoScanMaxPages（gitea 组）；至此 gitea 房没有 registry 补桩形态，24 条操作全覆盖。
 
 ## 交接
 

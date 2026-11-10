@@ -75,6 +75,8 @@ const EXPECTED = {
     labelListMaxPages: 100,
     countScanMaxPages: 100,
     mapListMaxPages: 10,
+    repoScanPerPage: 50,
+    repoScanMaxPages: 100,
   },
   markdown: {
     limitDefault: 50,
