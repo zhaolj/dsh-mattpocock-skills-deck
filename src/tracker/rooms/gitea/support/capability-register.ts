@@ -5,7 +5,8 @@
  * `src/tracker/contract/capability-answer.ts` 的文件头，这里不重复。
  *
  * ── 这一家的账（票 #3 的口径）────────────────────────────────────────────────
- * gitea 房目前只接了探活（preflight）与三个定位口；其余操作一律不写进工厂，由注册表按名录
+ * gitea 房目前接了探活（preflight）、三个定位口与 8 条读操作（票 #11：list / get / getDependencies /
+ * counts / listPage / listLabels / listSubIssues / listMaps）；其余操作一律不写进工厂，由注册表按名录
  * 补「不支持」的桩（stubBy: "registry"），调用方拿到的是规范的 unsupported 失败，不是方法缺失。
  * 每补一条操作：先在这里把那一行改成 `{ tier: 'provided' }`，再去实现，最后同步
  * `docs/tracker/capability-gitea.md` 的文档表，门禁 `tests/verify-capability-register.ts`
@@ -22,17 +23,17 @@
 import type { CapabilityRegister } from '../../../contract/capability-answer.js'
 
 /**
- * gitea 后端：27 条能力里 3 条真提供（探活 + 两个定位口），1 条定位口实现为「名字或空」，
- * 23 条操作由注册表补桩、明确不支持。
+ * gitea 后端：27 条能力里 9 条真提供（探活、两个定位口，加票 #11 的 8 条读操作），
+ * 15 条操作由注册表补桩、明确不支持。
  *
  * 顺序照契约名录（24 条操作在前、3 条定位口在后），读的人可以两边对着看。
  */
 export const GITEA_CAPABILITY_REGISTER = {
-  // —— 操作 24 条：探活真实现，其余 23 条由注册表补桩、明确不支持 ——
+  // —— 操作 24 条：探活与 8 条读操作（票 #11）真实现，其余 15 条由注册表补桩、明确不支持 ——
   preflight: { tier: 'provided' },
-  list: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  get: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  getDependencies: { tier: 'unsupported-by-design', stubBy: 'registry' },
+  list: { tier: 'provided' },
+  get: { tier: 'provided' },
+  getDependencies: { tier: 'provided' },
   create: { tier: 'unsupported-by-design', stubBy: 'registry' },
   close: { tier: 'unsupported-by-design', stubBy: 'registry' },
   reopen: { tier: 'unsupported-by-design', stubBy: 'registry' },
@@ -42,18 +43,18 @@ export const GITEA_CAPABILITY_REGISTER = {
   setAssignees: { tier: 'unsupported-by-design', stubBy: 'registry' },
   setParent: { tier: 'unsupported-by-design', stubBy: 'registry' },
   setBlockedBy: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  counts: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  listPage: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  listLabels: { tier: 'unsupported-by-design', stubBy: 'registry' },
+  counts: { tier: 'provided' },
+  listPage: { tier: 'provided' },
+  listLabels: { tier: 'provided' },
   setLabelColors: { tier: 'unsupported-by-design', stubBy: 'registry' },
   getCurrentUser: { tier: 'unsupported-by-design', stubBy: 'registry' },
   getRepoPermissions: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  listSubIssues: { tier: 'unsupported-by-design', stubBy: 'registry' },
+  listSubIssues: { tier: 'provided' },
   initProject: { tier: 'unsupported-by-design', stubBy: 'registry' },
   ensureLabelColorsFile: { tier: 'unsupported-by-design', stubBy: 'registry' },
   // 读预算：tea 这一房还没有量请求桶水位的实现，注册表补桩。补实现时把这一行改回 provided 并建 md 表。
   readBudget: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  listMaps: { tier: 'unsupported-by-design', stubBy: 'registry' },
+  listMaps: { tier: 'provided' },
 
   // —— 定位口 3 条：getRepoKey 实现为「名字或空」，describe 与 issueAddress 真提供 ——
   getRepoKey: { tier: 'provided' },

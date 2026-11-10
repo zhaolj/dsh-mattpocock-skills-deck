@@ -203,6 +203,180 @@ try {
   const errNet = classifyGiteaError({ text: 'Get "https://gitea.example/api/v1/repos/o/r": dial tcp: lookup gitea.example: no such host' })
   const errNetOk = errNet.kind === 'network'
   results.push({ name: 'gitea-minimal · error network-failure classified network', ok: errNetOk, detail: errNetOk ? '' : 'got=' + errNet.kind + ' fallback=' + String(errNet.fallback) })
+
+  // ── 票 #11：读路径真实现（假 tea exec 注入，钉解析与行为，不依赖活服务）──
+  // 假 tea：按命令词汇表（support/tea-run.ts）识别三组读命令，回 JSON。state/labels 筛在假端模拟，
+  // 页大小与页码按请求原样切片——门禁钉的是「我们怎么解析、怎么收窄」，不是 tea 本身。
+  const { createGiteaBackend } = await import('../src/tracker/rooms/gitea/index.js')
+  const baseIssues = [
+    { index: 1, title: 'map root', state: 'open', body: '<!-- DSH-BLOCKED-BY: 3 -->\n\n正文', labels: [{ name: 'wayfinder:map', color: '8b5cf6' }], created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-02T00:00:00Z', comments: 2, html_url: 'https://gitea.example/o/r/issues/1' },
+    { index: 2, title: 'sub of 1', state: 'open', body: '<!-- DSH-PARENT: 1 -->\n\n正文', labels: [], created_at: '2024-01-03T00:00:00Z', updated_at: '2024-01-04T00:00:00Z', html_url: 'https://gitea.example/o/r/issues/2' },
+    { index: 3, title: 'closed one', state: 'closed', closed_at: '2024-02-01T00:00:00Z', labels: [], created_at: '2024-01-05T00:00:00Z', updated_at: '2024-01-05T00:00:00Z', html_url: 'https://gitea.example/o/r/issues/3' },
+  ]
+  const commentsOfIssue1 = [
+    { id: 9, author: { login: 'bob' }, body: 'c1', created_at: '2024-01-02T01:00:00Z', updated_at: '2024-01-02T01:00:00Z' },
+    { id: 10, author: { login: 'carol' }, body: 'c2', created_at: '2024-01-02T02:00:00Z', updated_at: '2024-01-02T02:00:00Z' },
+  ]
+  const labelsStore = [
+    { name: 'bug', color: '#d73a4a', description: 'bug label' },
+    { name: 'wayfinder:map', color: '8b5cf6' },
+  ]
+  function argFlag(args, flag) {
+    const i = args.indexOf(flag)
+    return i >= 0 ? args[i + 1] : undefined
+  }
+  function makeFakeTea(overrides) {
+    const calls = []
+    return {
+      calls,
+      exec: async (cmd, args) => {
+        calls.push({ cmd, args })
+        const ov = overrides && overrides.reply ? overrides.reply({ cmd, args }) : null
+        if (ov) return Object.assign({ stdout: '', stderr: '', code: 0 }, ov)
+        if (cmd !== 'tea') return { stdout: '', stderr: 'unexpected cmd ' + cmd, code: 127 }
+        if (args[0] === 'issues' && args[1] === 'ls') {
+          const state = argFlag(args, '--state') || 'open'
+          const labels = (argFlag(args, '--labels') || '').split(',').filter(Boolean)
+          const limit = Number(argFlag(args, '--limit') || 50)
+          const page = Number(argFlag(args, '--page') || 1)
+          const refId = argFlag(args, '--repo') || ''
+          let pool = refId === 'o/full' ? Array.from({ length: 100 }, (_, i) => ({ index: i + 1, title: 'filler ' + (i + 1), state: 'open', labels: [], created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z', html_url: 'https://gitea.example/o/full/issues/' + (i + 1) })) : baseIssues
+          if (state !== 'all') pool = pool.filter((x) => x.state === state)
+          for (const l of labels) pool = pool.filter((x) => (x.labels || []).some((y) => y.name === l))
+          const start = (page - 1) * limit
+          return { stdout: JSON.stringify(pool.slice(start, start + limit)), stderr: '', code: 0 }
+        }
+        if (args[0] === 'issues' && args[2] === 'comments') {
+          return { stdout: JSON.stringify(commentsOfIssue1), stderr: '', code: 0 }
+        }
+        if (args[0] === 'issues') {
+          const n = Number(args[1])
+          const hit = baseIssues.find((x) => x.index === n)
+          if (!hit) return { stdout: '', stderr: '404 repository does not exist [see: docs]', code: 1 }
+          return { stdout: JSON.stringify(hit), stderr: '', code: 0 }
+        }
+        if (args[0] === 'labels' && args[1] === 'ls') {
+          const limit = Number(argFlag(args, '--limit') || 50)
+          const page = Number(argFlag(args, '--page') || 1)
+          const start = (page - 1) * limit
+          return { stdout: JSON.stringify(labelsStore.slice(start, start + limit)), stderr: '', code: 0 }
+        }
+        return { stdout: '', stderr: 'unexpected args ' + args.join(' '), code: 127 }
+      },
+    }
+  }
+  const repo = { backend: 'gitea', refId: 'o/r', name: 'r', url: 'https://gitea.example/o/r' }
+  // list：不带 state 显式要 all，三张都回；行按归一口径出 key/state。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.list(repo, undefined, fake)
+    const ok = res.ok && res.data.length === 3 && res.data[0].key === '1' && !res.truncated
+    results.push({ name: 'gitea-minimal · read list returns all rows without state filter', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+    const askedAll = fake.calls.length === 1 && fake.calls[0].args.includes('--state') && fake.calls[0].args[fake.calls[0].args.indexOf('--state') + 1] === 'all'
+    results.push({ name: 'gitea-minimal · read list asks --state all explicitly', ok: askedAll, detail: askedAll ? '' : JSON.stringify(fake.calls) })
+  }
+  // list state 筛交远端：closed 只回第 3 张。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.list(repo, { state: 'closed' }, fake)
+    const ok = res.ok && res.data.length === 1 && res.data[0].key === '3'
+    results.push({ name: 'gitea-minimal · read list filters state closed', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+  }
+  // list 满页置 truncated（假仓 100 张满页）。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.list({ backend: 'gitea', refId: 'o/full', name: 'full', url: '' }, undefined, fake)
+    const ok = res.ok && res.truncated === true && res.data.length === 100
+    results.push({ name: 'gitea-minimal · read list marks truncated on full page', ok, detail: ok ? '' : 'truncated=' + String(res.ok && res.truncated) + ' n=' + String(res.ok && res.data.length) })
+  }
+  // get：票面归一（parentKey 来自正文标记）+ 评论总数来自数字字段。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.get(repo, '2', undefined, fake)
+    const ok = res.ok && res.data.key === '2' && res.data.parentKey === '1' && res.data.commentCount === undefined
+    results.push({ name: 'gitea-minimal · read get normalizes parent marker', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+  }
+  // get 带评论：first=1 只要一条正文，票1 的评论取 2 条回 1 条截断。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.get(repo, '1', { comments: { first: 1 } }, fake)
+    const ok = res.ok && Array.isArray(res.data.comments) && res.data.comments.length === 1 && res.data.comments[0].body === 'c1' && res.data.commentCount === 2
+    results.push({ name: 'gitea-minimal · read get fetches first-N comments', ok, detail: ok ? '' : JSON.stringify(res.data && res.data.comments).slice(0, 300) })
+  }
+  // counts：全仓 2 开 1 关；state 收窄 closed → {0,1,1}。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const all = await backend.counts(repo, undefined, fake)
+    const allOk = all.ok && all.data.open === 2 && all.data.closed === 1 && all.data.total === 3
+    results.push({ name: 'gitea-minimal · read counts totals 2/1/3', ok: allOk, detail: allOk ? '' : JSON.stringify(all).slice(0, 300) })
+    const closed = await backend.counts(repo, { state: 'closed' }, fake)
+    const closedOk = closed.ok && closed.data.open === 0 && closed.data.closed === 1 && closed.data.total === 1
+    results.push({ name: 'gitea-minimal · read counts narrows state closed', ok: closedOk, detail: closedOk ? '' : JSON.stringify(closed).slice(0, 300) })
+  }
+  // listPage：limit=2 第一页两条 + nextCursor='2' + total=3；第二页一条 + nextCursor=null。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const p1 = await backend.listPage(repo, undefined, { limit: 2 }, fake)
+    const p1Ok = p1.ok && p1.data.items.length === 2 && p1.data.nextCursor === '2' && p1.data.total === 3
+    results.push({ name: 'gitea-minimal · read listPage first page cursor and total', ok: p1Ok, detail: p1Ok ? '' : JSON.stringify(p1).slice(0, 300) })
+    const p2 = await backend.listPage(repo, undefined, { limit: 2, cursor: p1.ok ? p1.data.nextCursor : undefined }, fake)
+    const p2Ok = p2.ok && p2.data.items.length === 1 && p2.data.nextCursor === null
+    results.push({ name: 'gitea-minimal · read listPage last page null cursor', ok: p2Ok, detail: p2Ok ? '' : JSON.stringify(p2).slice(0, 300) })
+  }
+  // listLabels：颜色规整去井号、描述非空才带。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.listLabels(repo, fake)
+    const ok = res.ok && res.data.length === 2 && res.data[0].name === 'bug' && res.data[0].color === 'd73a4a' && res.data[0].description === 'bug label' && !('description' in res.data[1])
+    results.push({ name: 'gitea-minimal · read listLabels maps colors and optional description', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+  }
+  // listSubIssues：扫仓按 parentKey 挑出第 2 张；total/fetched 按扫描口径交。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.listSubIssues(repo, '1', undefined, fake)
+    const ok = res.ok && res.data.items.length === 1 && res.data.items[0].key === '2' && res.data.fetched === 3 && res.data.total === 3 && res.data.capped === false && res.data.missing === 0 && res.data.dropped === 0
+    results.push({ name: 'gitea-minimal · read listSubIssues picks by parent marker', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+  }
+  // listMaps：标签 wayfinder:map 那张回四格行。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.listMaps(repo, fake)
+    const ok = res.ok && res.data.rows.length === 1 && res.data.rows[0].key === '1' && res.data.rows[0].title === 'map root' && res.data.rows[0].state === 'open' && res.data.total === 1 && res.data.truncated === false
+    results.push({ name: 'gitea-minimal · read listMaps returns map rows', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+  }
+  // getDependencies：正文隐藏机器表解出 blockedBy=[3]，对端状态落实 closed；blocking 恒空。
+  {
+    const fake = makeFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.getDependencies(repo, '1', undefined, fake)
+    const ok = res.ok && res.data.blockedBy.length === 1 && res.data.blockedBy[0].key === '3' && res.data.blockedBy[0].state === 'closed' && res.data.blockedBy[0].title === 'closed one' && Array.isArray(res.data.blocking) && res.data.blocking.length === 0
+    results.push({ name: 'gitea-minimal · read getDependencies resolves blocker from marker', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+  }
+  // 错误归档：远端 404 → not-found；假端断线 → network 兜底。
+  {
+    const fake = makeFakeTea({ reply: () => ({ stdout: '', stderr: '404 repository does not exist [see: docs]', code: 1 }) })
+    const backend = createGiteaBackend(fake)
+    const res = await backend.list(repo, undefined, fake)
+    const ok = !res.ok && res.error.kind === 'not-found'
+    results.push({ name: 'gitea-minimal · read list repo-missing classified not-found', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  {
+    const fake = makeFakeTea({ reply: () => ({ stdout: '', stderr: 'Get "https://gitea.example/api/v1": dial tcp: no such host', code: 1 }) })
+    const backend = createGiteaBackend(fake)
+    const res = await backend.get(repo, '1', undefined, fake)
+    const ok = !res.ok && res.error.kind === 'network'
+    results.push({ name: 'gitea-minimal · read get network-failure classified network', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
 } catch (e) {
   results.push({ name: 'gitea-minimal · import-failed', ok: false, detail: String(e && e.message || e) })
 }

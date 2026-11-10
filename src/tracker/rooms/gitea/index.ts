@@ -2,9 +2,9 @@
  * src/tracker/rooms/gitea/index.ts — Gitea 后端适配器（主缝实现），本文件是这个房间的入口真源。
  *
  * #2 的「最小 room」：入口交出模块对象、工厂与识别（matches / describe），外加 preflight、
- * 错误判档（errors.ts）与命令词汇表（room/prompts.ts，cli 是 tea）。26 条能力名录里起步只接
- * preflight 这一条操作，其余操作**一律不写**——没实现的那些由注册表的 Proxy 补「我不支持」的桩，
- * 房间自己不造布尔能力表，也不交半成品操作。
+ * 错误判档（errors.ts）与命令词汇表（room/prompts.ts，cli 是 tea）。能力名录里交的是登记数据
+ * 声明为 provided 的那些操作（探活、定位口，加票 #11 起的 8 条读路径）；没实现的那些由注册表的
+ * Proxy 补「我不支持」的桩，房间自己不造布尔能力表，也不交半成品操作。
  *
  * 仿 GitLab 房（src/tracker/rooms/gitlab/index.ts）的形状起骨架；本文件交的成员集合不受
  * `src/tracker/capability-assertions.ts` 的编译期断言钉（那份断言今天只钉 GitHub/GitLab/Markdown
@@ -27,6 +27,13 @@ import { issueAddress, repoSearchAddress, DEFAULT_GITEA_WEB_ORIGIN } from './roo
 import { prompts } from './room/prompts.js'
 import type { ProvidedCapability } from '../../contract/capability-answer.js'
 import type { GITEA_CAPABILITY_REGISTER } from './support/capability-register.js'
+import { listIssues, getIssue } from './issues/read.js'
+import { counts } from './issues/counts.js'
+import { listPage } from './issues/pages.js'
+import { listSubIssues } from './issues/sub-issues.js'
+import { listMaps } from './issues/maps.js'
+import { listLabels } from './labels/list.js'
+import { getDependencies } from './graph/read.js'
 
 /** 识别这一趟要用的文件服务：就用契约上下文里那一格，不另定义形状。 */
 type MarkerFs = OpContext['fs']
@@ -172,6 +179,16 @@ export function createGiteaBackend(ctx: BackendContext): GiteaBackendShape {
      * 定位口：问「这个仓库叫什么」。从 `.git/config` 记下的远端地址解析 owner/name
      * （best-effort 真问一次 git remote，与 matches 的兜底同一档超时）；解析不出来回 null。
      */
+    // 票 #11 的 8 条读操作：命令词汇表在 support/tea-run.ts 一处，读实现分别在
+    // issues/{read,counts,pages,maps,sub-issues}.ts、labels/list.ts、graph/read.ts。
+    list: (repo, filter, opCtx) => listIssues(ctx, repo, filter, opCtx || ctx),
+    get: (repo, key, opts, opCtx) => getIssue(ctx, repo, key, opts, opCtx || ctx),
+    getDependencies: (repo, key, opts, opCtx) => getDependencies(repo, key, opts, opCtx || ctx),
+    counts: (repo, filter, opCtx) => counts(repo, filter, opCtx || ctx),
+    listPage: (repo, filter, opts, opCtx) => listPage(repo, filter, opts, opCtx || ctx),
+    listLabels: (repo, opCtx) => listLabels(repo, opCtx || ctx),
+    listSubIssues: (repo, mapKey, opts, opCtx) => listSubIssues(repo, mapKey, opts, opCtx || ctx),
+    listMaps: (repo, opCtx) => listMaps(repo, opCtx || ctx),
     getRepoKey: async (cwd: string, opCtx: OpContext | null | undefined) => {
       const exec = opCtx && opCtx.exec
       if (!exec || typeof cwd !== 'string' || !cwd) return null
