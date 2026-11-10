@@ -1,16 +1,16 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-10T19:43:12.362Z",
+  "generatedAt": "2026-11-10T21:08:30.618Z",
   "generatedBy": "node scripts/gate-map.mts",
-  "chainLength": 601,
-  "gateCount": 601,
-  "attributedGates": 544,
+  "chainLength": 602,
+  "gateCount": 602,
+  "attributedGates": 545,
   "unattributedGates": 57,
   "buildOutputOnlyGates": 21,
   "completionRecordedGates": 143,
   "smokeLength": 8,
   "smokeCompletionRecordedGates": 5,
-  "graphFileCount": 987,
+  "graphFileCount": 990,
   "gates": [
     {
       "step": "node tests/verify-1207-splice-ts.ts",
@@ -10867,6 +10867,23 @@
       "reason": "归属来自 文件头 // 门禁归属: 注释（共 3 条）"
     },
     {
+      "step": "node tests/verify-gitea-read-log.ts",
+      "file": "tests/verify-gitea-read-log.ts",
+      "guards": [
+        "src/tracker/rooms/gitea",
+        "src/tracker/rooms/gitea/support/read-log.ts"
+      ],
+      "dirs": [
+        "src/tracker/rooms/gitea",
+        "src/tracker/rooms/gitea/support"
+      ],
+      "unattributed": false,
+      "buildOutputOnly": false,
+      "completionRecord": false,
+      "expectedAssertions": 0,
+      "reason": "归属来自：读文件调用（readFileSync / readFile / path.join(ROOT, ...)） 1 条；静态 import 说明符 1 条"
+    },
+    {
       "step": "node tests/verify-github-gh-via.ts",
       "file": "tests/verify-github-gh-via.ts",
       "guards": [
@@ -15977,13 +15994,15 @@
       "node tests/verify-prompts.ts"
     ],
     "src/tracker/rooms/gitea": [
+      "node tests/verify-gitea-read-log.ts",
       "node tests/verify-tracker-contract.ts"
     ],
     "src/tracker/rooms/gitea/model": [
       "node tests/verify-tracker-contract.ts"
     ],
     "src/tracker/rooms/gitea/support": [
-      "node tests/verify-capability-register.ts"
+      "node tests/verify-capability-register.ts",
+      "node tests/verify-gitea-read-log.ts"
     ],
     "src/tracker/rooms/github": [
       "node tests/verify-no-mixed-session.ts",
@@ -16623,9 +16642,9 @@
   },
   "coverage": {
     "sourceRoot": "src",
-    "fileCount": 1010,
+    "fileCount": 1013,
     "dirCount": 110,
-    "coveredFileCount": 1010,
+    "coveredFileCount": 1013,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
     "dedicatedDirCount": 83,
@@ -17429,6 +17448,9 @@
       "src/tracker/rooms/gitea/room/links.ts",
       "src/tracker/rooms/gitea/room/prompts.ts",
       "src/tracker/rooms/gitea/support/capability-register.ts",
+      "src/tracker/rooms/gitea/support/expected-preflight.ts",
+      "src/tracker/rooms/gitea/support/read-log.ts",
+      "src/tracker/rooms/gitea/support/target.ts",
       "src/tracker/rooms/gitea/support/tea-run.ts",
       "src/tracker/rooms/github/channels/graphql/comment-paging.ts",
       "src/tracker/rooms/github/channels/graphql/index.ts",
