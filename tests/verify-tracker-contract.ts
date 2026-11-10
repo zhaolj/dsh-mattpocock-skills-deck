@@ -627,6 +627,103 @@ try {
     const ok = uOk && cmOk && clOk && roOk && backOk
     results.push({ name: 'gitea-minimal · deck_issue_patch write-back chain update comment close reopen end-to-end', ok, detail: ok ? '' : JSON.stringify({ u: u.ok ? u.data.body : u, cm: cm.ok ? cm.data.body : cm, cl: cl.ok ? cl.data.state : cl, ro: ro.ok ? ro.data.state : ro, back: back.ok ? { body: back.data.body, state: back.data.state, comments: back.data.comments && back.data.comments.map((c) => c.body) } : back }).slice(0, 500) })
   }
+  // ── 票 #13：结构写（setParent / setBlockedBy）——写侧隐藏标记 + 可见行兜底，写后读回闭环 ──
+  // 与票 #12 同一个判思路：门禁钉「我们怎么拼命令、怎么判档、写完读回能不能还原 parent 与 blockedBy」。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setParent：给 #3（正文为空）挂父 #1，edit --description 写进隐藏标记，读回闭环 get 能还原 parentKey。
+    const res = await backend.setParent(repo, '3', '1', undefined, fake)
+    const editCall = fake.calls.find((x) => x.args[1] === 'edit')
+    const bodyIn = editCall ? editCall.args[editCall.args.indexOf('--description') + 1] : ''
+    const wrote = res.ok && res.data.parentKey === '1' && !!editCall && editCall.args.includes('--description') && typeof bodyIn === 'string' && bodyIn.includes('<!-- DSH-PARENT: 1 -->')
+    results.push({ name: 'gitea-minimal · write setParent writes hidden parent marker', ok: wrote, detail: wrote ? '' : JSON.stringify({ res: res.ok ? res.data.parentKey : res, bodyIn }).slice(0, 300) })
+    const back = await backend.get(repo, '3', undefined, fake)
+    const loop = back.ok && back.data.parentKey === '1'
+    results.push({ name: 'gitea-minimal · write setParent read-back loop restores parentKey', ok: loop, detail: loop ? '' : JSON.stringify(back.ok ? back.data.parentKey : back).slice(0, 200) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setParent(null)：把 #2 的归属拆掉，正文里不再有隐藏标记，读回 parentKey 归无。
+    const res = await backend.setParent(repo, '2', null, undefined, fake)
+    const row = fake.issues.find((x) => x.index === 2)
+    const ok = res.ok && res.data.parentKey === null && typeof row.body === 'string' && !row.body.includes('DSH-PARENT')
+    results.push({ name: 'gitea-minimal · write setParent null detaches marker', ok, detail: ok ? '' : JSON.stringify({ res: res.ok ? res.data.parentKey : res, body: row && row.body }).slice(0, 300) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setParent：自挂回 conflict，不发任何写命令。
+    const res = await backend.setParent(repo, '2', '2', undefined, fake)
+    const ok = !res.ok && res.error.kind === 'conflict' && !fake.calls.some((x) => x.args[1] === 'edit')
+    results.push({ name: 'gitea-minimal · write setParent self-parent conflict without write', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) + ' calls=' + JSON.stringify(fake.calls.map((x) => x.args.slice(0, 3))) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setParent：expectedUpdatedAt 对不上回 conflict，不写。
+    const res = await backend.setParent(repo, '2', '1', { expectedUpdatedAt: '1999-01-01T00:00:00Z' }, fake)
+    const ok = !res.ok && res.error.kind === 'conflict' && !fake.calls.some((x) => x.args[1] === 'edit')
+    results.push({ name: 'gitea-minimal · write setParent conflict on stale expectedUpdatedAt without write', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setParent：父票不存在按 not-found 如实回，不写（写一个不存在的父编号会把读侧指向空票）。
+    const res = await backend.setParent(repo, '2', '999', undefined, fake)
+    const ok = !res.ok && res.error.kind === 'not-found' && !fake.calls.some((x) => x.args[1] === 'edit')
+    results.push({ name: 'gitea-minimal · write setParent missing parent classified not-found without write', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setBlockedBy：给 #3 写一条阻塞（#3 被 #2 阻塞）——可见行与隐藏机器表成对落正文，
+    // 读回闭环 getDependencies 能还原 blockedBy。
+    const res = await backend.setBlockedBy(repo, '3', ['2'], undefined, fake)
+    const row = fake.issues.find((x) => x.index === 3)
+    const bodyIn = typeof row.body === 'string' ? row.body : ''
+    const wrote = res.ok && Array.isArray(res.data.blockedBy) && res.data.blockedBy.length === 1 && res.data.blockedBy[0].key === '2' && bodyIn.includes('<!-- DSH-BLOCKED-BY: 2 -->') && bodyIn.includes('Blocked by:')
+    results.push({ name: 'gitea-minimal · write setBlockedBy writes visible line and hidden table pair', ok: wrote, detail: wrote ? '' : JSON.stringify({ res: res.ok ? res.data.blockedBy : res, bodyIn }).slice(0, 400) })
+    const deps = await backend.getDependencies(repo, '3', undefined, fake)
+    const loop = deps.ok && Array.isArray(deps.data.blockedBy) && deps.data.blockedBy.length === 1 && deps.data.blockedBy[0].key === '2' && deps.data.blockedBy[0].title === 'sub of 1'
+    results.push({ name: 'gitea-minimal · write setBlockedBy read-back loop restores blockedBy', ok: loop, detail: loop ? '' : JSON.stringify(deps.ok ? deps.data.blockedBy : deps).slice(0, 300) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setBlockedBy([])：把 #1 的阻塞清空——可见行与隐藏机器表两处一起拆干净，读回闭环为空。
+    const res = await backend.setBlockedBy(repo, '1', [], undefined, fake)
+    const row = fake.issues.find((x) => x.index === 1)
+    const bodyIn = typeof row.body === 'string' ? row.body : ''
+    const deps = await backend.getDependencies(repo, '1', undefined, fake)
+    const ok = res.ok && Array.isArray(res.data.blockedBy) && res.data.blockedBy.length === 0 && !bodyIn.includes('DSH-BLOCKED-BY') && !bodyIn.includes('Blocked by:') && deps.ok && deps.data.blockedBy.length === 0
+    results.push({ name: 'gitea-minimal · write setBlockedBy empty set clears both places and read-back is empty', ok, detail: ok ? '' : JSON.stringify({ res: res.ok ? res.data.blockedBy : res, bodyIn, deps: deps.ok ? deps.data.blockedBy : deps }).slice(0, 400) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setBlockedBy：自阻塞回 conflict，不落盘。
+    const res = await backend.setBlockedBy(repo, '1', ['1'], undefined, fake)
+    const ok = !res.ok && res.error.kind === 'conflict' && !fake.calls.some((x) => x.args[1] === 'edit')
+    results.push({ name: 'gitea-minimal · write setBlockedBy self-block conflict without write', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setBlockedBy：写完成环回 conflict 且不落盘——#1 现在已被 #3 阻塞，再让 #3 被 #1 阻塞就成环。
+    const res = await backend.setBlockedBy(repo, '3', ['1'], undefined, fake)
+    const ok = !res.ok && res.error.kind === 'conflict' && !fake.calls.some((x) => x.args[1] === 'edit')
+    results.push({ name: 'gitea-minimal · write setBlockedBy cycle conflict without write', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 300) + ' calls=' + JSON.stringify(fake.calls.map((x) => x.args.slice(0, 3))) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    // setBlockedBy：expectedUpdatedAt 对不上回 conflict，不写。
+    const res = await backend.setBlockedBy(repo, '3', ['2'], { expectedUpdatedAt: '1999-01-01T00:00:00Z' }, fake)
+    const ok = !res.ok && res.error.kind === 'conflict' && !fake.calls.some((x) => x.args[1] === 'edit')
+    results.push({ name: 'gitea-minimal · write setBlockedBy conflict on stale expectedUpdatedAt without write', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
 } catch (e) {
   results.push({ name: 'gitea-minimal · import-failed', ok: false, detail: String(e && e.message || e) })
 }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-10T18:26:00.696Z",
+  "generatedAt": "2026-11-10T19:00:44.464Z",
   "generatedBy": "node scripts/gate-map.mts",
   "chainLength": 601,
   "gateCount": 601,
@@ -10,7 +10,7 @@
   "completionRecordedGates": 143,
   "smokeLength": 8,
   "smokeCompletionRecordedGates": 5,
-  "graphFileCount": 982,
+  "graphFileCount": 983,
   "gates": [
     {
       "step": "node tests/verify-1207-splice-ts.ts",
@@ -16623,9 +16623,9 @@
   },
   "coverage": {
     "sourceRoot": "src",
-    "fileCount": 1005,
+    "fileCount": 1006,
     "dirCount": 109,
-    "coveredFileCount": 1005,
+    "coveredFileCount": 1006,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
     "dedicatedDirCount": 83,
@@ -17409,6 +17409,7 @@
       "src/tracker/rooms/gitea/comments/write.ts",
       "src/tracker/rooms/gitea/errors.ts",
       "src/tracker/rooms/gitea/graph/read.ts",
+      "src/tracker/rooms/gitea/graph/write.ts",
       "src/tracker/rooms/gitea/index.ts",
       "src/tracker/rooms/gitea/issues/counts.ts",
       "src/tracker/rooms/gitea/issues/maps.ts",
@@ -17899,7 +17900,7 @@
       },
       {
         "path": "src/tracker/rooms/gitea/graph",
-        "fileCount": 1
+        "fileCount": 2
       },
       {
         "path": "src/tracker/rooms/gitea/issues",

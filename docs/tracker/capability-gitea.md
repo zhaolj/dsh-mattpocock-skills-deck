@@ -2,11 +2,11 @@
 
 票 #3 的交付物（2026-11-10）。登记口径同 GitHub / GitLab / Markdown 那三份，一条一条对照实现落笔，不估。
 
-四类的判据写在 `src/tracker/contract/capability-answer.ts` 的文件头。gitea 房目前的账：探活（preflight）、三个定位口、8 条读操作与 7 条写操作已经落地（票 #2 起骨架、票 #3 补齐定位口、票 #11 补读路径、票 #12 补写路径），其余 8 条操作全部**明确不支持**、由注册表按名录补桩——调用这些操作得到的是规范的「不支持」失败，不是方法缺失。归一层（normalizeIssue 的完整映射、labels 与 blocked_by / Blocked-by 双路径）已按契约对齐，补实现的操作直接复用。
+四类的判据写在 `src/tracker/contract/capability-answer.ts` 的文件头。gitea 房目前的账：探活（preflight）、三个定位口、8 条读操作与 9 条写操作已经落地（票 #2 起骨架、票 #3 补齐定位口、票 #11 补读路径、票 #12 补写路径、票 #13 补结构写），其余 6 条操作全部**明确不支持**、由注册表按名录补桩——调用这些操作得到的是规范的「不支持」失败，不是方法缺失。归一层（normalizeIssue 的完整映射、labels 与 blocked_by / Blocked-by 双路径）已按契约对齐，补实现的操作直接复用。
 
-实现真源：`src/tracker/rooms/gitea/index.ts`（工厂交 preflight + describe / issueAddress / getRepoKey 三条定位口，加票 #11 的 8 条读操作与票 #12 的 7 条写操作）。命令面是 Gitea CLI（tea），词汇表与错误修复指引在 `rooms/gitea/room/prompts.ts`，错误判档的 tea 专有条目在 `rooms/gitea/errors.ts`。
+实现真源：`src/tracker/rooms/gitea/index.ts`（工厂交 preflight + describe / issueAddress / getRepoKey 三条定位口，加票 #11 的 8 条读操作、票 #12 的 7 条写操作与票 #13 的 2 条结构写）。命令面是 Gitea CLI（tea），词汇表与错误修复指引在 `rooms/gitea/room/prompts.ts`，错误判档的 tea 专有条目在 `rooms/gitea/errors.ts`。
 
-## 操作（24 条中：16 条明确提供功能、8 条明确不支持）
+## 操作（24 条中：18 条明确提供功能、6 条明确不支持）
 
 | 能力 | 登记 | 依据 |
 |---|---|---|
@@ -21,8 +21,8 @@
 | update | 明确提供功能 | `issues/write.ts`：`tea issues edit <编号> --repo <refId> [--title] [--description] [--milestone 名字或空串] --output json`；空补丁不发写命令、回读当前票面；customFields 明确不支持；写后回包难读时回查票面兜底 |
 | setLabels | 明确提供功能 | `labels/assign.ts`：tea 没有整集替换标签的参数，先读现标签算差集再发 `--add-labels` / `--remove-labels`（gitlab 房同一条纪律：expectedUpdatedAt 前置读，对不上回 conflict）；目标集合与现状一致时不发写命令 |
 | setAssignees | 明确提供功能 | `labels/assign.ts`：`tea issues edit <编号> --set-assignees a,b` 本来就是整集替换（空串清空），一步到位；expectedUpdatedAt 前置读与 setLabels 同一套，写后回读以远端为准 |
-| setParent | 明确不支持 | 注册表补桩；tea 没有父子拆分命令，写方向将来按隐藏标记 `<!-- DSH-PARENT: n -->` 落正文 |
-| setBlockedBy | 明确不支持 | 注册表补桩；写方向将来按成对写法落隐藏机器表与可见行（gitlab 房同一套标记） |
+| setParent | 明确提供功能 | `graph/write.ts`：归属的真相写进正文头的隐藏标记 `<!-- DSH-PARENT: n -->`（`model/description-markers.ts` 一处出处，拆归属顺带清旧 `Part of` 行）；写前 `expectedUpdatedAt` 前置读、父票存在性回查，写后回读核对（读侧同一解析口径）；自挂回 conflict |
+| setBlockedBy | 明确提供功能 | `graph/write.ts`：可见 `Blocked by:` 行与隐藏机器表成对整集替换（`model/description-markers.ts` 一处出处），数据源 `tea issues edit --description`；自阻塞回 conflict，写前从单页列表读邻接做环检（成环 conflict 不落盘，快照拉不到记读降级放行），写后回读深比对 |
 | counts | 明确提供功能 | `issues/counts.ts`：tea 没有统计端点，翻页扫仓数出打开/关闭两数（每页上限与最多扫几页见共享分页表 gitea 组），扫不满如实失败不许猜数；filter.state 本地收窄，与 GitHub / GitLab 房同一口径 |
 | listPage | 明确提供功能 | `issues/pages.ts`：游标是页码，`--limit`／`--page` 翻页；缺省 50、上限 200（共享分页表），total 用同一筛选口径扫出来；创建时间倒序、无下一页 nextCursor=null |
 | listLabels | 明确提供功能 | `labels/list.ts`：`tea labels ls --output json` 翻页拉全量，颜色过 `normalizeColor` 归一成不带井号的六位小写十六进制；取不全整体失败，不交残缺清单 |
@@ -47,6 +47,7 @@
 
 - 2026-11-10（票 #3 落地）：首份登记表。归一层补齐（评论、里程碑、作者、blocked_by / Blocked-by 双路径、隐藏父标记），错误判档补三条 tea 专有条目，定位口 `getRepoKey` 真实现；23 条操作明确不支持、由注册表补桩。
 - 2026-11-11（票 #11 落地）：8 条读操作改为明确提供功能（list / get / getDependencies / counts / listPage / listLabels / listSubIssues / listMaps），数据源是 tea 的读命令（`tea issues ls` / `tea issues <编号>` / `tea issues <编号> comments` / `tea labels ls`），分页额度收进共享分页表的 gitea 组；其余 15 条操作仍明确不支持。
+- 2026-11-11（票 #13 落地）：2 条结构写改为明确提供功能（setParent / setBlockedBy），数据源是 `tea issues edit --description` 整篇正文替换（tea 没有父子与阻塞端点）：归属写隐藏标记 `<!-- DSH-PARENT: n -->`，阻塞按可见行与隐藏机器表成对写；写前 `expectedUpdatedAt` 前置读与环检、写后回读核对，与读侧票 #11 的解析同一口径；其余 6 条操作仍明确不支持。
 - 2026-11-11（票 #12 落地）：7 条写操作改为明确提供功能（create / close / reopen / comment / update / setLabels / setAssignees），数据源是 tea 的写命令（`tea issues create` / `tea issues close` / `tea issues reopen` / `tea issues edit` / `tea comments add`，参数按本机 tea 0.16.0 的 help 逐条核对）；setLabels 因 tea 无整集替换参数改为「先读现标签算差集再 add/remove」；其余 8 条操作仍明确不支持。
 
 ## 交接

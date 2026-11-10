@@ -3,7 +3,7 @@
  *
  * #2 的「最小 room」：入口交出模块对象、工厂与识别（matches / describe），外加 preflight、
  * 错误判档（errors.ts）与命令词汇表（room/prompts.ts，cli 是 tea）。能力名录里交的是登记数据
- * 声明为 provided 的那些操作（探活、定位口，票 #11 起的 8 条读路径与票 #12 的 7 条写路径）；
+ * 声明为 provided 的那些操作（探活、定位口，票 #11 起的 8 条读路径、票 #12 的 7 条写路径与票 #13 的 2 条结构写）；
  * 没实现的那些由注册表的
  * Proxy 补「我不支持」的桩，房间自己不造布尔能力表，也不交半成品操作。
  *
@@ -39,6 +39,8 @@ import { listSubIssues } from './issues/sub-issues.js'
 import { listMaps } from './issues/maps.js'
 import { listLabels } from './labels/list.js'
 import { getDependencies } from './graph/read.js'
+// 票 #13 的 2 条结构写：归属与阻塞写进正文（隐藏标记优先、可见行兜底），实现见 graph/write.ts。
+import { setParent, setBlockedBy } from './graph/write.js'
 
 /** 识别这一趟要用的文件服务：就用契约上下文里那一格，不另定义形状。 */
 type MarkerFs = OpContext['fs']
@@ -202,6 +204,9 @@ export function createGiteaBackend(ctx: BackendContext): GiteaBackendShape {
     update: (repo, key, patch, opCtx) => updateIssue(ctx, repo, key, patch, opCtx || ctx),
     setLabels: (repo, key, labels, opts, opCtx) => setLabels(ctx, repo, key, labels, opts, opCtx || ctx),
     setAssignees: (repo, key, assignees, opts, opCtx) => setAssignees(ctx, repo, key, assignees, opts, opCtx || ctx),
+    // 票 #13 的 2 条结构写：签名按契约 Tracker 钉，词汇表在 support/tea-run.ts。
+    setParent: (repo, key, parentKey, opts, opCtx) => setParent(ctx, repo, key, parentKey, opts, opCtx || ctx),
+    setBlockedBy: (repo, key, blockers, opts, opCtx) => setBlockedBy(ctx, repo, key, blockers, opts, opCtx || ctx),
     getRepoKey: async (cwd: string, opCtx: OpContext | null | undefined) => {
       const exec = opCtx && opCtx.exec
       if (!exec || typeof cwd !== 'string' || !cwd) return null

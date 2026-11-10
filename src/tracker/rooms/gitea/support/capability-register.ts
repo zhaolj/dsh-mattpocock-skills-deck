@@ -6,8 +6,8 @@
  *
  * ── 这一家的账（票 #3 的口径）────────────────────────────────────────────────
  * gitea 房目前接了探活（preflight）、三个定位口、8 条读操作（票 #11：list / get / getDependencies /
- * counts / listPage / listLabels / listSubIssues / listMaps）与 7 条写操作（票 #12：create / close /
- * reopen / comment / update / setLabels / setAssignees）；其余操作一律不写进工厂，由注册表按名录
+ * counts / listPage / listLabels / listSubIssues / listMaps）与 9 条写操作（票 #12：create / close /
+ * reopen / comment / update / setLabels / setAssignees；票 #13：setParent / setBlockedBy）；其余操作一律不写进工厂，由注册表按名录
  * 补「不支持」的桩（stubBy: "registry"），调用方拿到的是规范的 unsupported 失败，不是方法缺失。
  * 每补一条操作：先在这里把那一行改成 `{ tier: 'provided' }`，再去实现，最后同步
  * `docs/tracker/capability-gitea.md` 的文档表，门禁 `tests/verify-capability-register.ts`
@@ -24,13 +24,13 @@
 import type { CapabilityRegister } from '../../../contract/capability-answer.js'
 
 /**
- * gitea 后端：27 条能力里 16 条真提供（探活、两个定位口，加票 #11 的 8 条读操作与票 #12 的 7 条写操作），
- * 8 条操作由注册表补桩、明确不支持。
+ * gitea 后端：27 条能力里 18 条真提供（探活、两个定位口，加票 #11 的 8 条读操作与票 #12 的 7 条写操作、票 #13 的 2 条结构写），
+ * 6 条操作由注册表补桩、明确不支持。
  *
  * 顺序照契约名录（24 条操作在前、3 条定位口在后），读的人可以两边对着看。
  */
 export const GITEA_CAPABILITY_REGISTER = {
-  // —— 操作 24 条：探活、8 条读操作（票 #11）与 7 条写操作（票 #12）真实现，其余 8 条由注册表补桩、明确不支持 ——
+  // —— 操作 24 条：探活、8 条读操作（票 #11）与 9 条写操作（票 #12、#13）真实现，其余 6 条由注册表补桩、明确不支持 ——
   preflight: { tier: 'provided' },
   list: { tier: 'provided' },
   get: { tier: 'provided' },
@@ -43,8 +43,9 @@ export const GITEA_CAPABILITY_REGISTER = {
   update: { tier: 'provided' },
   setLabels: { tier: 'provided' },
   setAssignees: { tier: 'provided' },
-  setParent: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  setBlockedBy: { tier: 'unsupported-by-design', stubBy: 'registry' },
+  // 票 #13 的 2 条结构写：归属与阻塞都写进正文（隐藏标记优先、可见行兜底），实现见 graph/write.ts。
+  setParent: { tier: 'provided' },
+  setBlockedBy: { tier: 'provided' },
   counts: { tier: 'provided' },
   listPage: { tier: 'provided' },
   listLabels: { tier: 'provided' },
