@@ -5,8 +5,9 @@
  * `src/tracker/contract/capability-answer.ts` 的文件头，这里不重复。
  *
  * ── 这一家的账（票 #3 的口径）────────────────────────────────────────────────
- * gitea 房目前接了探活（preflight）、三个定位口与 8 条读操作（票 #11：list / get / getDependencies /
- * counts / listPage / listLabels / listSubIssues / listMaps）；其余操作一律不写进工厂，由注册表按名录
+ * gitea 房目前接了探活（preflight）、三个定位口、8 条读操作（票 #11：list / get / getDependencies /
+ * counts / listPage / listLabels / listSubIssues / listMaps）与 7 条写操作（票 #12：create / close /
+ * reopen / comment / update / setLabels / setAssignees）；其余操作一律不写进工厂，由注册表按名录
  * 补「不支持」的桩（stubBy: "registry"），调用方拿到的是规范的 unsupported 失败，不是方法缺失。
  * 每补一条操作：先在这里把那一行改成 `{ tier: 'provided' }`，再去实现，最后同步
  * `docs/tracker/capability-gitea.md` 的文档表，门禁 `tests/verify-capability-register.ts`
@@ -23,24 +24,25 @@
 import type { CapabilityRegister } from '../../../contract/capability-answer.js'
 
 /**
- * gitea 后端：27 条能力里 9 条真提供（探活、两个定位口，加票 #11 的 8 条读操作），
- * 15 条操作由注册表补桩、明确不支持。
+ * gitea 后端：27 条能力里 16 条真提供（探活、两个定位口，加票 #11 的 8 条读操作与票 #12 的 7 条写操作），
+ * 8 条操作由注册表补桩、明确不支持。
  *
  * 顺序照契约名录（24 条操作在前、3 条定位口在后），读的人可以两边对着看。
  */
 export const GITEA_CAPABILITY_REGISTER = {
-  // —— 操作 24 条：探活与 8 条读操作（票 #11）真实现，其余 15 条由注册表补桩、明确不支持 ——
+  // —— 操作 24 条：探活、8 条读操作（票 #11）与 7 条写操作（票 #12）真实现，其余 8 条由注册表补桩、明确不支持 ——
   preflight: { tier: 'provided' },
   list: { tier: 'provided' },
   get: { tier: 'provided' },
   getDependencies: { tier: 'provided' },
-  create: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  close: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  reopen: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  comment: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  update: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  setLabels: { tier: 'unsupported-by-design', stubBy: 'registry' },
-  setAssignees: { tier: 'unsupported-by-design', stubBy: 'registry' },
+  // 票 #12 的 7 条写操作：tea 命令面见 support/tea-run.ts，实现见 issues/write.ts、labels/assign.ts、comments/write.ts。
+  create: { tier: 'provided' },
+  close: { tier: 'provided' },
+  reopen: { tier: 'provided' },
+  comment: { tier: 'provided' },
+  update: { tier: 'provided' },
+  setLabels: { tier: 'provided' },
+  setAssignees: { tier: 'provided' },
   setParent: { tier: 'unsupported-by-design', stubBy: 'registry' },
   setBlockedBy: { tier: 'unsupported-by-design', stubBy: 'registry' },
   counts: { tier: 'provided' },

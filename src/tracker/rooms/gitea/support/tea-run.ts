@@ -8,11 +8,19 @@
  *   · 执行器从上下文取（opCtx 优先，缺了按 127 如实回，与 GitLab 房 glabClient 同一口径）；
  *   · JSON 解析失败不算崩溃：回包先按 unknown 收，形状不对回 null，由调用方挑错误档位。
  *
- * tea 命令面（本房词汇，票 #3 的口径，真机上以实测修正）：
+ * tea 命令面（本房词汇，票 #3 的口径，真机上以实测修正；写路径的参数形状按本机 tea 0.16.0
+ *   的 --help 逐条核对过，票 #12）：
  *   列表页：tea issues ls --repo <refId> --state open|closed|all [--labels a,b] --output json --limit N --page P
  *   单票：  tea issues <编号> --repo <refId> --output json
  *   评论：  tea issues <编号> comments --repo <refId> --output json --limit N --page P
  *   标签：  tea labels ls --repo <refId> --output json --limit N --page P
+ *   建票：  tea issues create --repo <refId> --title T --description D [--labels a,b] [--assignees a,b]
+ *           （create 不认 --output，回包是含 #编号 的一行文本，用 parseCreatedIssueKey 抠编号）
+ *   关/开： tea issues close|reopen <编号> --repo <refId> --output json
+ *   改票：  tea issues edit <编号> --repo <refId> [--title T] [--description D] [--add-labels a,b]
+ *           [--remove-labels a,b] [--set-assignees a,b] [--milestone M|''] --output json
+ *           （tea 没有 --labels 整集替换，setLabels 先读现标签再算 add/remove 差集）
+ *   评注：  tea comments add <编号> --repo <refId> --description <正文> --output json
  */
 
 import type { BackendContext, ExecResult, OpContext } from '../../../contract/contexts.js'
@@ -109,6 +117,67 @@ export function argsCommentsPage(refId: string, key: string | number, limitRows:
 /** 标签一页的参数。 */
 export function argsLabelsPage(refId: string, limitRows: number, page: number): string[] {
   return ['labels', 'ls', '--repo', refId, '--output', 'json', '--limit', String(limitRows), '--page', String(page)]
+}
+
+// ── 写路径的参数（票 #12）：同样只在这一处拼，操作文件只挑词汇 ──────────────────
+
+/** 建票的参数。labels 与 assignees 是已归一的名字列表（空数组就不带这一项）。 */
+export function argsIssueCreate(refId: string, title: string, description: string, labels: string[], assignees: string[]): string[] {
+  const args = ['issues', 'create', '--repo', refId, '--title', title]
+  if (description) args.push('--description', description)
+  if (labels.length) args.push('--labels', labels.join(','))
+  if (assignees.length) args.push('--assignees', assignees.join(','))
+  return args
+}
+
+/** 关票的参数（tea 的 close 认 --output json，回包就是关完之后的票面）。 */
+export function argsIssueClose(refId: string, key: string | number): string[] {
+  return ['issues', 'close', String(key), '--repo', refId, '--output', 'json']
+}
+
+/** 重开的参数（tea 0.16.0 的命令面里 reopen 是独立子命令，不是 edit 的一个开关）。 */
+export function argsIssueReopen(refId: string, key: string | number): string[] {
+  return ['issues', 'reopen', String(key), '--repo', refId, '--output', 'json']
+}
+
+/** 改票的编辑项：只把给了的字段拼进命令，没给的不出现（空操作由调用方先判掉，不发命令）。 */
+export interface IssueEditFields {
+  title?: string
+  description?: string
+  addLabels?: string[]
+  removeLabels?: string[]
+  /** 整集替换认领人（tea 的 --set-assignees）；空串表示清空。 */
+  setAssignees?: string
+  /** 里程碑按名字给；空串表示清空（tea --milestone "" 的口径）。 */
+  milestone?: string
+}
+
+/** 改票的参数：按编辑项拼一条 tea issues edit。 */
+export function argsIssueEdit(refId: string, key: string | number, fields: IssueEditFields): string[] {
+  const args = ['issues', 'edit', String(key), '--repo', refId]
+  if (typeof fields.title === 'string') args.push('--title', fields.title)
+  if (typeof fields.description === 'string') args.push('--description', fields.description)
+  if (fields.addLabels && fields.addLabels.length) args.push('--add-labels', fields.addLabels.join(','))
+  if (fields.removeLabels && fields.removeLabels.length) args.push('--remove-labels', fields.removeLabels.join(','))
+  if (typeof fields.setAssignees === 'string') args.push('--set-assignees', fields.setAssignees)
+  if (typeof fields.milestone === 'string') args.push('--milestone', fields.milestone)
+  args.push('--output', 'json')
+  return args
+}
+
+/** 写一条评论的参数（tea 的评论写入挂在 comments 命名空间下，不是 issues <编号> comments）。 */
+export function argsCommentAdd(refId: string, key: string | number, body: string): string[] {
+  return ['comments', 'add', String(key), '--repo', refId, '--description', body, '--output', 'json']
+}
+
+/**
+ * 从建票的文本回包里抠出新票编号：tea issues create 不认 --output，回包是含井号编号的一行
+ * 说明文字（真机 0.16.0 实测）。抠不出来回 null——调用方拿不到编号时如实失败，
+ * 不许拿「可能已建出去」的票猜一个编号。
+ */
+export function parseCreatedIssueKey(stdout: string): string | null {
+  const m = /#(\d+)/.exec(typeof stdout === 'string' ? stdout : '')
+  return m ? m[1] : null
 }
 
 /**

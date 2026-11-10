@@ -377,6 +377,256 @@ try {
     const ok = !res.ok && res.error.kind === 'network'
     results.push({ name: 'gitea-minimal · read get network-failure classified network', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
   }
+
+  // ── 票 #12：写路径真实现（可变内存店的假 tea，写命令真的改店，读回校验写的结果）──
+  // 与读路径同一个判思路：门禁钉的是「我们怎么拼命令、怎么判档、写完怎么交契约形状」，
+  // 不是 tea 本身；本机没有活 Gitea，全部行为用假 exec 层钉住。
+  function makeWriteFakeTea() {
+    const issues = baseIssues.map((x) => ({ ...x, labels: (x.labels || []).map((y) => ({ ...y })), notes: [] }))
+    let nextIndex = 100
+    const commentsAdded = []
+    const calls = []
+    return {
+      calls,
+      issues,
+      commentsAdded,
+      exec: async (cmd, args) => {
+        calls.push({ cmd, args })
+        if (cmd !== 'tea') return { stdout: '', stderr: 'unexpected cmd ' + cmd, code: 127 }
+        const flags = (flag) => {
+          const i = args.indexOf(flag)
+          return i >= 0 ? args[i + 1] : undefined
+        }
+        // 读：列表与单票（与 makeFakeTea 同一套，但读的是可变店）。
+        if (args[0] === 'issues' && args[1] === 'ls') {
+          const state = flags('--state') || 'open'
+          let pool = issues
+          if (state !== 'all') pool = pool.filter((x) => x.state === state)
+          const limit = Number(flags('--limit') || 50)
+          const page = Number(flags('--page') || 1)
+          return { stdout: JSON.stringify(pool.slice((page - 1) * limit, page * limit)), stderr: '', code: 0 }
+        }
+        if (args[0] === 'issues' && args[2] === 'comments') {
+          const hit = issues.find((x) => x.index === Number(args[1]))
+          return { stdout: JSON.stringify(hit && hit.notes ? hit.notes : []), stderr: '', code: 0 }
+        }
+        if (args[0] === 'issues' && args[1] === 'create') {
+          const title = flags('--title') || ''
+          if (!title) return { stdout: '', stderr: 'title is required', code: 1 }
+          const idx = nextIndex++
+          const labels = (flags('--labels') || '').split(',').filter(Boolean).map((n) => ({ name: n, color: '' }))
+          const row = { index: idx, title, state: 'open', body: flags('--description') || '', labels, assignees: (flags('--assignees') || '').split(',').filter(Boolean).map((l) => ({ login: l })), created_at: '2026-11-11T00:00:00Z', updated_at: '2026-11-11T00:00:00Z', html_url: 'https://gitea.example/o/r/issues/' + idx, comments: 0 }
+          issues.push(row)
+          // create 不认 --output：回包是含井号编号的一行文本（真机口径）。
+          return { stdout: '已创建工单 #' + idx + ' ' + row.html_url, stderr: '', code: 0 }
+        }
+        if ((args[0] === 'issues' && (args[1] === 'close' || args[1] === 'reopen')) || (args[0] === 'issues' && args[1] === 'edit')) {
+          const n = Number(args[2])
+          const hit = issues.find((x) => x.index === n)
+          if (!hit) return { stdout: '', stderr: '404 repository does not exist [see: docs]', code: 1 }
+          if (args[1] === 'close') { hit.state = 'closed'; hit.closed_at = '2026-11-11T01:00:00Z' }
+          else if (args[1] === 'reopen') { hit.state = 'open'; delete hit.closed_at }
+          else {
+            // edit：只落实命令里给了的字段（add/remove/set 语义按 tea 实测）。
+            const add = (flags('--add-labels') || '').split(',').filter(Boolean)
+            const rm = (flags('--remove-labels') || '').split(',').filter(Boolean)
+            hit.labels = (hit.labels || []).filter((y) => !rm.includes(y.name))
+            for (const n2 of add) if (!hit.labels.some((y) => y.name === n2)) hit.labels.push({ name: n2, color: '' })
+            if (typeof flags('--set-assignees') === 'string') hit.assignees = flags('--set-assignees').split(',').filter(Boolean).map((l) => ({ login: l }))
+            if (typeof flags('--title') === 'string') hit.title = flags('--title')
+            if (typeof flags('--description') === 'string') hit.body = flags('--description')
+            if (typeof flags('--milestone') === 'string') hit.milestone = flags('--milestone') ? { title: flags('--milestone'), description: '', state: 'open' } : null
+          }
+          hit.updated_at = '2026-11-11T01:00:00Z'
+          return { stdout: JSON.stringify(hit), stderr: '', code: 0 }
+        }
+        if (args[0] === 'comments' && args[1] === 'add') {
+          const n = Number(args[2])
+          const hit = issues.find((x) => x.index === n)
+          if (!hit) return { stdout: '', stderr: '404 repository does not exist [see: docs]', code: 1 }
+          const c = { id: commentsAdded.length + 1, author: { login: 'tester' }, body: flags('--description') || '', created_at: '2026-11-11T02:00:00Z', updated_at: '2026-11-11T02:00:00Z' }
+          commentsAdded.push(c)
+          ;(hit.notes = hit.notes || []).push(c)
+          hit.comments = (hit.comments || 0) + 1
+          return { stdout: JSON.stringify(c), stderr: '', code: 0 }
+        }
+        if (args[0] === 'issues' && !Number.isNaN(Number(args[1]))) {
+          const n = Number(args[1])
+          const hit = issues.find((x) => x.index === n)
+          if (!hit) return { stdout: '', stderr: '404 repository does not exist [see: docs]', code: 1 }
+          return { stdout: JSON.stringify(hit), stderr: '', code: 0 }
+        }
+        if (args[0] === 'labels' && args[1] === 'ls') return { stdout: JSON.stringify(labelsStore), stderr: '', code: 0 }
+        return { stdout: '', stderr: 'unexpected args ' + args.join(' '), code: 127 }
+      },
+    }
+  }
+  // create：假店真的落了一张票，回查交契约形状；labels / assignees 逗号串交给命令。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.create(repo, { title: 'new one', body: 'hello', labels: ['bug'], assignees: ['alice'] }, fake)
+    const ok = res.ok && res.data.key === '100' && res.data.title === 'new one' && res.data.body === 'hello'
+    results.push({ name: 'gitea-minimal · write create lands issue and refetches', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+    const c = fake.calls.find((x) => x.args[1] === 'create')
+    const argsOk = !!c && c.args.includes('--labels') && c.args[c.args.indexOf('--labels') + 1] === 'bug' && c.args.includes('--assignees') && c.args[c.args.indexOf('--assignees') + 1] === 'alice'
+    results.push({ name: 'gitea-minimal · write create passes labels and assignees comma list', ok: argsOk, detail: argsOk ? '' : JSON.stringify(fake.calls) })
+  }
+  // create 带 parentKey：正文头写进隐藏归属标记（读回来 parentKey 就是它）。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.create(repo, { title: 'child', parentKey: '1' }, fake)
+    const ok = res.ok && res.data.parentKey === '1'
+    results.push({ name: 'gitea-minimal · write create writes hidden parent marker', ok, detail: ok ? '' : JSON.stringify({ ok: res.ok, parentKey: res.ok && res.data.parentKey }).slice(0, 300) })
+  }
+  // create 幂等键不合规：parse 拒绝、不发任何命令；合规键放行。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const bad = await backend.create(repo, { title: 'x', idempotencyKey: '坏 键!' }, fake)
+    const badOk = !bad.ok && bad.error.kind === 'parse' && fake.calls.length === 0
+    results.push({ name: 'gitea-minimal · write create rejects invalid idempotency key before any call', ok: badOk, detail: badOk ? '' : JSON.stringify({ bad: bad.ok ? null : bad.error, calls: fake.calls.length }).slice(0, 300) })
+    const good = await backend.create(repo, { title: 'y', idempotencyKey: 'deck-12-anchor' }, fake)
+    const goodOk = good.ok && fake.calls.some((x) => x.args[1] === 'create')
+    results.push({ name: 'gitea-minimal · write create accepts valid idempotency key', ok: goodOk, detail: goodOk ? '' : JSON.stringify(good).slice(0, 300) })
+  }
+  // create 错误三档自证：未登录 → auth；无仓库 → not-found；断线 → network。
+  {
+    const fake = makeWriteFakeTea()
+    fake.exec = (async (cmd, args) => ({ stdout: '', stderr: 'tea: no token found for gitea.example.com; run tea login add', code: 1 }))
+    const backend = createGiteaBackend(fake)
+    const res = await backend.create(repo, { title: 'x' }, fake)
+    const ok = !res.ok && res.error.kind === 'auth'
+    results.push({ name: 'gitea-minimal · write create not-logged-in classified auth', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    fake.exec = (async (cmd, args) => {
+      if (args[1] === 'create') return { stdout: '', stderr: '404 repository does not exist [see: docs]', code: 1 }
+      const hit = fake.issues.find((x) => x.index === 1)
+      return { stdout: JSON.stringify(hit), stderr: '', code: 0 }
+    })
+    const backend = createGiteaBackend(fake)
+    const res = await backend.create(repo, { title: 'x' }, fake)
+    const ok = !res.ok && res.error.kind === 'not-found'
+    results.push({ name: 'gitea-minimal · write create repo-missing classified not-found', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    fake.exec = (async () => ({ stdout: '', stderr: 'Get "https://gitea.example/api/v1": dial tcp: no such host', code: 1 }))
+    const backend = createGiteaBackend(fake)
+    const res = await backend.create(repo, { title: 'x' }, fake)
+    const ok = !res.ok && res.error.kind === 'network'
+    results.push({ name: 'gitea-minimal · write create network-failure classified network', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  // close / reopen：写命令真的改店，回包交归一票面（state 对得上）。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const closed = await backend.close(repo, '1', undefined, fake)
+    const closedOk = closed.ok && closed.data.key === '1' && closed.data.state === 'closed'
+    results.push({ name: 'gitea-minimal · write close flips state to closed', ok: closedOk, detail: closedOk ? '' : JSON.stringify(closed).slice(0, 300) })
+    const reopened = await backend.reopen(repo, '3', fake)
+    const reopenedOk = reopened.ok && reopened.data.key === '3' && reopened.data.state === 'open'
+    results.push({ name: 'gitea-minimal · write reopen flips state to open', ok: reopenedOk, detail: reopenedOk ? '' : JSON.stringify(reopened).slice(0, 300) })
+    const closeCall = fake.calls.find((x) => x.args[1] === 'close')
+    const reopenCall = fake.calls.find((x) => x.args[1] === 'reopen')
+    const wordsOk = !!closeCall && closeCall.args[0] === 'issues' && !!reopenCall && reopenCall.args[0] === 'issues'
+    results.push({ name: 'gitea-minimal · write close/reopen use issues subcommand', ok: wordsOk, detail: wordsOk ? '' : JSON.stringify(fake.calls) })
+  }
+  // update：title+body 走一条 issues edit；空补丁不发写命令只回读。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.update(repo, '1', { title: 'renamed', body: 'new body' }, fake)
+    const editCall = fake.calls.find((x) => x.args[1] === 'edit')
+    const ok = res.ok && res.data.title === 'renamed' && res.data.body === 'new body' && !!editCall && editCall.args.includes('--title') && editCall.args.includes('--description')
+    results.push({ name: 'gitea-minimal · write update edits title and body', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) + ' calls=' + JSON.stringify(fake.calls.map((x) => x.args.slice(0, 3))) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.update(repo, '1', {}, fake)
+    const ok = res.ok && res.data.key === '1' && !fake.calls.some((x) => x.args[1] === 'edit')
+    results.push({ name: 'gitea-minimal · write update empty patch reads back without write', ok, detail: ok ? '' : JSON.stringify(fake.calls.map((x) => x.args.slice(0, 3))) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.update(repo, '1', { customFields: [{ name: 'f', value: '1' }] }, fake)
+    const ok = !res.ok && res.error.kind === 'unsupported' && fake.calls.length === 0
+    results.push({ name: 'gitea-minimal · write update customFields unsupported without any call', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) })
+  }
+  // setLabels：差集写（现有 bug，目标 bug+p1 → 只 add p1）；目标一致不发写；expectedUpdatedAt 对不上回 conflict 不写。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.setLabels(repo, '1', ['wayfinder:map', 'p1'], undefined, fake)
+    const editCall = fake.calls.find((x) => x.args[1] === 'edit')
+    const ok = res.ok && !!editCall && editCall.args.includes('--add-labels') && editCall.args[editCall.args.indexOf('--add-labels') + 1] === 'p1' && !editCall.args.includes('--remove-labels')
+    results.push({ name: 'gitea-minimal · write setLabels diffs add only', ok, detail: ok ? '' : JSON.stringify({ res: res.ok ? res.data.labels : res, calls: fake.calls.map((x) => x.args.slice(0, 4)) }).slice(0, 400) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.setLabels(repo, '1', ['wayfinder:map'], undefined, fake)
+    const ok = res.ok && !fake.calls.some((x) => x.args[1] === 'edit') && res.data.labels.length === 1 && res.data.labels[0].name === 'wayfinder:map'
+    results.push({ name: 'gitea-minimal · write setLabels no-op when target matches', ok, detail: ok ? '' : JSON.stringify(fake.calls.map((x) => x.args.slice(0, 3))) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.setLabels(repo, '1', ['bug'], { expectedUpdatedAt: '1999-01-01T00:00:00Z' }, fake)
+    const ok = !res.ok && res.error.kind === 'conflict' && !fake.calls.some((x) => x.args[1] === 'edit')
+    results.push({ name: 'gitea-minimal · write setLabels conflict on stale expectedUpdatedAt without write', ok, detail: ok ? '' : JSON.stringify(res && res.error).slice(0, 200) + ' calls=' + JSON.stringify(fake.calls.map((x) => x.args.slice(0, 3))) })
+  }
+  // setAssignees：--set-assignees 整集替换一步到位；空集清空。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.setAssignees(repo, '1', ['alice', { login: 'bob' }], undefined, fake)
+    const editCall = fake.calls.find((x) => x.args[1] === 'edit')
+    const ok = res.ok && !!editCall && editCall.args.includes('--set-assignees') && editCall.args[editCall.args.indexOf('--set-assignees') + 1] === 'alice,bob'
+    results.push({ name: 'gitea-minimal · write setAssignees replaces whole set', ok, detail: ok ? '' : JSON.stringify(fake.calls.map((x) => x.args.slice(0, 5))) })
+  }
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.setAssignees(repo, '1', [], undefined, fake)
+    const editCall = fake.calls.find((x) => x.args[1] === 'edit')
+    const ok = res.ok && !!editCall && editCall.args[editCall.args.indexOf('--set-assignees') + 1] === ''
+    results.push({ name: 'gitea-minimal · write setAssignees empty set clears', ok, detail: ok ? '' : JSON.stringify(fake.calls.map((x) => x.args.slice(0, 5))) })
+  }
+  // comment：comments add 落店，契约 Comment 形状回（作者关联恒空串、正文以调用方入参为准）。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.comment(repo, '1', 'looks good', fake)
+    const ok = res.ok && res.data.body === 'looks good' && res.data.authorAssociation === '' && res.data.author.login === 'tester' && !!res.data.createdAt
+    results.push({ name: 'gitea-minimal · write comment returns contract Comment', ok, detail: ok ? '' : JSON.stringify(res).slice(0, 300) })
+    const addCall = fake.calls.find((x) => x.args[0] === 'comments' && x.args[1] === 'add')
+    const ok2 = !!addCall && addCall.args[2] === '1'
+    results.push({ name: 'gitea-minimal · write comment targets issue via comments add', ok: ok2, detail: ok2 ? '' : JSON.stringify(fake.calls.map((x) => x.args.slice(0, 3))) })
+  }
+  // deck_issue_patch 写回链路端到端：update 正文 → comment → close → reopen，每一步后按步序读回校验
+  // （deck_issue_patch 的 t.update / t.comment / t.close / t.reopen 落在本房工厂的这四个成员上）。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const u = await backend.update(repo, '1', { body: 'patched body' }, fake)
+    const uOk = u.ok && u.data.body === 'patched body'
+    const cm = await backend.comment(repo, '1', '已按规格改完', fake)
+    const cmOk = cm.ok && cm.data.body === '已按规格改完'
+    const cl = await backend.close(repo, '1', { reason: 'completed' }, fake)
+    const clOk = cl.ok && cl.data.state === 'closed'
+    const ro = await backend.reopen(repo, '1', fake)
+    const roOk = ro.ok && ro.data.state === 'open'
+    const back = await backend.get(repo, '1', { comments: { first: 5 } }, fake)
+    const backOk = back.ok && back.data.body === 'patched body' && back.data.state === 'open' && Array.isArray(back.data.comments) && back.data.comments.some((c) => c.body === '已按规格改完')
+    const ok = uOk && cmOk && clOk && roOk && backOk
+    results.push({ name: 'gitea-minimal · deck_issue_patch write-back chain update comment close reopen end-to-end', ok, detail: ok ? '' : JSON.stringify({ u: u.ok ? u.data.body : u, cm: cm.ok ? cm.data.body : cm, cl: cl.ok ? cl.data.state : cl, ro: ro.ok ? ro.data.state : ro, back: back.ok ? { body: back.data.body, state: back.data.state, comments: back.data.comments && back.data.comments.map((c) => c.body) } : back }).slice(0, 500) })
+  }
 } catch (e) {
   results.push({ name: 'gitea-minimal · import-failed', ok: false, detail: String(e && e.message || e) })
 }

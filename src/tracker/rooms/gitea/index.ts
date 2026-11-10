@@ -3,7 +3,8 @@
  *
  * #2 的「最小 room」：入口交出模块对象、工厂与识别（matches / describe），外加 preflight、
  * 错误判档（errors.ts）与命令词汇表（room/prompts.ts，cli 是 tea）。能力名录里交的是登记数据
- * 声明为 provided 的那些操作（探活、定位口，加票 #11 起的 8 条读路径）；没实现的那些由注册表的
+ * 声明为 provided 的那些操作（探活、定位口，票 #11 起的 8 条读路径与票 #12 的 7 条写路径）；
+ * 没实现的那些由注册表的
  * Proxy 补「我不支持」的桩，房间自己不造布尔能力表，也不交半成品操作。
  *
  * 仿 GitLab 房（src/tracker/rooms/gitlab/index.ts）的形状起骨架；本文件交的成员集合不受
@@ -28,6 +29,10 @@ import { prompts } from './room/prompts.js'
 import type { ProvidedCapability } from '../../contract/capability-answer.js'
 import type { GITEA_CAPABILITY_REGISTER } from './support/capability-register.js'
 import { listIssues, getIssue } from './issues/read.js'
+// 票 #12 的 7 条写路径：建/关/开/改在 issues/write.ts，标签与认领人在 labels/assign.ts，评论在 comments/write.ts。
+import { createIssue, closeIssue, reopenIssue, updateIssue } from './issues/write.js'
+import { setLabels, setAssignees } from './labels/assign.js'
+import { addComment } from './comments/write.js'
 import { counts } from './issues/counts.js'
 import { listPage } from './issues/pages.js'
 import { listSubIssues } from './issues/sub-issues.js'
@@ -189,6 +194,14 @@ export function createGiteaBackend(ctx: BackendContext): GiteaBackendShape {
     listLabels: (repo, opCtx) => listLabels(repo, opCtx || ctx),
     listSubIssues: (repo, mapKey, opts, opCtx) => listSubIssues(repo, mapKey, opts, opCtx || ctx),
     listMaps: (repo, opCtx) => listMaps(repo, opCtx || ctx),
+    // 票 #12 的 7 条写操作：签名按契约 Tracker 钉（GiteaBackendShape 编译期比对），词汇表在 support/tea-run.ts。
+    create: (repo, input, opCtx) => createIssue(ctx, repo, input, opCtx || ctx),
+    close: (repo, key, opts, opCtx) => closeIssue(ctx, repo, key, opts, opCtx || ctx),
+    reopen: (repo, key, opCtx) => reopenIssue(ctx, repo, key, opCtx || ctx),
+    comment: (repo, key, body, opCtx) => addComment(ctx, repo, key, body, opCtx || ctx),
+    update: (repo, key, patch, opCtx) => updateIssue(ctx, repo, key, patch, opCtx || ctx),
+    setLabels: (repo, key, labels, opts, opCtx) => setLabels(ctx, repo, key, labels, opts, opCtx || ctx),
+    setAssignees: (repo, key, assignees, opts, opCtx) => setAssignees(ctx, repo, key, assignees, opts, opCtx || ctx),
     getRepoKey: async (cwd: string, opCtx: OpContext | null | undefined) => {
       const exec = opCtx && opCtx.exec
       if (!exec || typeof cwd !== 'string' || !cwd) return null

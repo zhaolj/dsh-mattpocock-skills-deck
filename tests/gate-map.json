@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-10T08:34:13.005Z",
+  "generatedAt": "2026-11-10T18:26:00.696Z",
   "generatedBy": "node scripts/gate-map.mts",
   "chainLength": 601,
   "gateCount": 601,
@@ -10,7 +10,7 @@
   "completionRecordedGates": 143,
   "smokeLength": 8,
   "smokeCompletionRecordedGates": 5,
-  "graphFileCount": 971,
+  "graphFileCount": 982,
   "gates": [
     {
       "step": "node tests/verify-1207-splice-ts.ts",
@@ -13450,6 +13450,7 @@
         "examples/demo-mini/matches.ts",
         "src/tracker/registry/core.ts",
         "src/tracker/rooms/gitea/errors.ts",
+        "src/tracker/rooms/gitea/index.ts",
         "src/tracker/rooms/gitea/model/normalize.ts",
         "src/tracker/rooms/github/model/normalize.ts",
         "src/tracker/rooms/gitlab/model/normalize.ts",
@@ -13491,7 +13492,7 @@
       "buildOutputOnly": false,
       "completionRecord": false,
       "expectedAssertions": 0,
-      "reason": "归属来自：载入模块（require / import / pathToFileURL） 8 条；静态 import 说明符 20 条；源码里的路径字面量 1 条"
+      "reason": "归属来自：载入模块（require / import / pathToFileURL） 9 条；静态 import 说明符 20 条；源码里的路径字面量 1 条"
     },
     {
       "step": "node tests/verify-tracker-session.ts",
@@ -16622,9 +16623,9 @@
   },
   "coverage": {
     "sourceRoot": "src",
-    "fileCount": 994,
-    "dirCount": 105,
-    "coveredFileCount": 994,
+    "fileCount": 1005,
+    "dirCount": 109,
+    "coveredFileCount": 1005,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
     "dedicatedDirCount": 83,
@@ -17405,14 +17406,25 @@
       "src/tracker/registry/shape.ts",
       "src/tracker/registry/views.ts",
       "src/tracker/rooms/README.md",
+      "src/tracker/rooms/gitea/comments/write.ts",
       "src/tracker/rooms/gitea/errors.ts",
+      "src/tracker/rooms/gitea/graph/read.ts",
       "src/tracker/rooms/gitea/index.ts",
+      "src/tracker/rooms/gitea/issues/counts.ts",
+      "src/tracker/rooms/gitea/issues/maps.ts",
+      "src/tracker/rooms/gitea/issues/pages.ts",
+      "src/tracker/rooms/gitea/issues/read.ts",
+      "src/tracker/rooms/gitea/issues/sub-issues.ts",
+      "src/tracker/rooms/gitea/issues/write.ts",
+      "src/tracker/rooms/gitea/labels/assign.ts",
+      "src/tracker/rooms/gitea/labels/list.ts",
       "src/tracker/rooms/gitea/model/description-markers.ts",
       "src/tracker/rooms/gitea/model/normalize.ts",
       "src/tracker/rooms/gitea/preflight.ts",
       "src/tracker/rooms/gitea/room/links.ts",
       "src/tracker/rooms/gitea/room/prompts.ts",
       "src/tracker/rooms/gitea/support/capability-register.ts",
+      "src/tracker/rooms/gitea/support/tea-run.ts",
       "src/tracker/rooms/github/channels/graphql/comment-paging.ts",
       "src/tracker/rooms/github/channels/graphql/index.ts",
       "src/tracker/rooms/github/channels/graphql/queries.ts",
@@ -17695,6 +17707,10 @@
       "src/tracker/registry",
       "src/tracker/rooms",
       "src/tracker/rooms/gitea",
+      "src/tracker/rooms/gitea/comments",
+      "src/tracker/rooms/gitea/graph",
+      "src/tracker/rooms/gitea/issues",
+      "src/tracker/rooms/gitea/labels",
       "src/tracker/rooms/gitea/model",
       "src/tracker/rooms/gitea/room",
       "src/tracker/rooms/gitea/support",
@@ -17876,6 +17892,22 @@
       {
         "path": "src/shared/time-config",
         "fileCount": 4
+      },
+      {
+        "path": "src/tracker/rooms/gitea/comments",
+        "fileCount": 1
+      },
+      {
+        "path": "src/tracker/rooms/gitea/graph",
+        "fileCount": 1
+      },
+      {
+        "path": "src/tracker/rooms/gitea/issues",
+        "fileCount": 6
+      },
+      {
+        "path": "src/tracker/rooms/gitea/labels",
+        "fileCount": 2
       },
       {
         "path": "src/tracker/rooms/gitea/room",
