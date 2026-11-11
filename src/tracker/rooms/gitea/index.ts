@@ -22,12 +22,17 @@ import type { RepositoryRef } from '../../contract/entities.js'
 import type { BackendContext, OpContext, RepoHandle } from '../../contract/contexts.js'
 import { teaPreflight } from './preflight.js'
 import { remoteUrlsOfGitConfig } from '../../kernel/git-remote.js'
+// 模块检查表由检查目录派生（与 GitHub 房同一口径：目录是唯一真源，这里不再手抄第二份）。
+import { backendItemsOf } from '../../../shared/tracker/check-catalog-dirs.js'
 // 声明文件用判定层同一套解析器，只认「声明」不认「正文里提了一句」（#1555 同一口径）。
 import { normalizeTrackerText, parseIssueTracker } from '../../kernel/issue-tracker-declaration.js'
 import { issueAddress, repoSearchAddress, DEFAULT_GITEA_WEB_ORIGIN } from './room/links.js'
 import { prompts } from './room/prompts.js'
+// 修复契约的解析口（fix-contract.resolvePrompt）要读模块的 prompts 键，按 GitLab 房同一口径把名字导出去。
+export { prompts }
 import type { ProvidedCapability, StubbedByBackend } from '../../contract/capability-answer.js'
 import type { GITEA_CAPABILITY_REGISTER } from './support/capability-register.js'
+import type { RoomFixEntry } from '../../contract/backend-module.js'
 import { listIssues, getIssue } from './issues/read.js'
 // 票 #12 的 7 条写路径：建/关/开/改在 issues/write.ts，标签与认领人在 labels/assign.ts，评论在 comments/write.ts。
 import { createIssue, closeIssue, reopenIssue, updateIssue } from './issues/write.js'
@@ -247,6 +252,34 @@ export function createGiteaBackend(ctx: BackendContext): GiteaBackendShape {
   }
 }
 
+/**
+ * 修复契约（2026-11-11）：检查链失败行的修复知识，只挂安装与登录两项（维护者定版 Q3）。
+ * 关联仓库与仓库可达两行不挂专项按钮，保持默认的「重查」。文案引用本房 prompts 键
+ * cliInstall / cliLogin（双语单源，与 GitHub 房 gh:installed / gh:authed 同构）。
+ */
+export const fixes: Record<string, RoomFixEntry> = Object.freeze({
+  'tea:installed': {
+    hint: {
+      zh: 'DSH 进程启动时继承的 PATH 中未解析到 tea 可执行文件。可能未安装，也可能已安装但其目录不在该 PATH 中（安装后要重启宿主：宿主只在启动时读 PATH）。',
+      en: 'tea was not resolved from the PATH inherited at DSH process startup. It may be not installed, or installed in a directory absent from that PATH (restart the host after installing: the host reads PATH only at startup).',
+    },
+    actions: [
+      { type: 'inject-prompt', prompt: 'cliInstall', label: { zh: '安装指引', en: 'Install guide' } },
+      { type: 'refresh', target: 'chain' },
+    ],
+  },
+  'tea:authed': {
+    hint: {
+      zh: 'Gitea 登录状态不可用，重新登录后即可继续。',
+      en: 'The Gitea login is not usable — sign in again to continue.',
+    },
+    actions: [
+      { type: 'inject-prompt', prompt: 'cliLogin', label: { zh: '登录指引', en: 'Login guide' } },
+      { type: 'refresh', target: 'chain' },
+    ],
+  },
+})
+
 /** BackendModule（registry可插拔） */
 export const giteaBackend = {
   id: 'gitea',
@@ -271,6 +304,8 @@ export const giteaBackend = {
   // 预算口径：起步按只计请求声明（tea 每次调用记一条请求的口径在补操作时接入）。
   budget: { kind: 'requests-only' as const, countsRequests: true, countsPoints: false, independentBuckets: false },
   prompts,
+  checks: Object.freeze(backendItemsOf('gitea')),
+  fixes,
 } satisfies BackendModule
 
 export default createGiteaBackend

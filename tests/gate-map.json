@@ -1,16 +1,16 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-10T21:08:30.618Z",
+  "generatedAt": "2026-11-11T04:27:06.475Z",
   "generatedBy": "node scripts/gate-map.mts",
-  "chainLength": 602,
-  "gateCount": 602,
-  "attributedGates": 545,
+  "chainLength": 603,
+  "gateCount": 603,
+  "attributedGates": 546,
   "unattributedGates": 57,
   "buildOutputOnlyGates": 21,
   "completionRecordedGates": 143,
   "smokeLength": 8,
   "smokeCompletionRecordedGates": 5,
-  "graphFileCount": 990,
+  "graphFileCount": 991,
   "gates": [
     {
       "step": "node tests/verify-1207-splice-ts.ts",
@@ -10867,6 +10867,29 @@
       "reason": "归属来自 文件头 // 门禁归属: 注释（共 3 条）"
     },
     {
+      "step": "node tests/verify-gitea-chain-predicates.ts",
+      "file": "tests/verify-gitea-chain-predicates.ts",
+      "guards": [
+        "src/refresh/rooms/host/chain-env-map.ts",
+        "src/refresh/rooms/host/check-chain-evaluation.ts",
+        "src/refresh/rooms/host/git-execution.ts",
+        "src/refresh/rooms/host/gitea-chain-predicates.ts",
+        "src/shared/tracker/check-catalog-dirs.ts",
+        "src/tracker/rooms/gitea/index.ts",
+        "src/tracker/rooms/gitea/preflight.ts"
+      ],
+      "dirs": [
+        "src/refresh/rooms/host",
+        "src/shared/tracker",
+        "src/tracker/rooms/gitea"
+      ],
+      "unattributed": false,
+      "buildOutputOnly": false,
+      "completionRecord": false,
+      "expectedAssertions": 0,
+      "reason": "归属来自 文件头 // 门禁归属: 注释（共 7 条）"
+    },
+    {
       "step": "node tests/verify-gitea-read-log.ts",
       "file": "tests/verify-gitea-read-log.ts",
       "guards": [
@@ -15637,6 +15660,7 @@
       "node tests/verify-fallback-fetch-budget.ts",
       "node tests/verify-gate-accounting.ts",
       "node tests/verify-gh-gateway.ts",
+      "node tests/verify-gitea-chain-predicates.ts",
       "node tests/verify-github-gh-via.ts",
       "node tests/verify-github-label-colors.ts",
       "node tests/verify-github-rest-fallback.ts",
@@ -15797,6 +15821,7 @@
       "node tests/verify-968-skill-ondemand.ts",
       "node tests/verify-dirwritable.ts",
       "node tests/verify-generic-catalog.ts",
+      "node tests/verify-gitea-chain-predicates.ts",
       "node tests/verify-issue232-sync.ts",
       "node tests/verify-subdir-first-frame.ts",
       "node tests/verify-time-config.ts"
@@ -15994,6 +16019,7 @@
       "node tests/verify-prompts.ts"
     ],
     "src/tracker/rooms/gitea": [
+      "node tests/verify-gitea-chain-predicates.ts",
       "node tests/verify-gitea-read-log.ts",
       "node tests/verify-tracker-contract.ts"
     ],
@@ -16642,9 +16668,9 @@
   },
   "coverage": {
     "sourceRoot": "src",
-    "fileCount": 1013,
+    "fileCount": 1014,
     "dirCount": 110,
-    "coveredFileCount": 1013,
+    "coveredFileCount": 1014,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
     "dedicatedDirCount": 83,
@@ -17210,6 +17236,7 @@
       "src/refresh/rooms/host/gh-execution.ts",
       "src/refresh/rooms/host/gh-run-report.ts",
       "src/refresh/rooms/host/git-execution.ts",
+      "src/refresh/rooms/host/gitea-chain-predicates.ts",
       "src/refresh/rooms/host/host-attention.ts",
       "src/refresh/rooms/host/issue-index-scan.ts",
       "src/refresh/rooms/host/issue-list-fetch.ts",
@@ -17895,7 +17922,7 @@
       },
       {
         "path": "src/refresh/rooms",
-        "fileCount": 73
+        "fileCount": 74
       },
       {
         "path": "src/shared/command-cleanup",
