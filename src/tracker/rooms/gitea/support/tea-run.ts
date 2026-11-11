@@ -41,8 +41,8 @@ export type RawBag = Record<string, unknown>
 
 /**
  * 一趟读等 tea 的时限（毫秒）。探活那趟用 preflight.ts 的短档（3 秒）；真正的读可能要翻页，
- * 给 10 秒整档。现在写死在这里，接中央超时线（config/timeouts.yaml）时搬走——与 GitLab 房
- * 「超时住中央 YAML」同一去向，搬家是一次独立 diff。
+ * 给 10 秒整档。#16 拍板写死在这里并钉住，不搬进中央超时线（config/timeouts.yaml）：
+ * 这是对外部 CLI 的稳态兜底超时，不走可调通道。
  */
 export const TEA_READ_TIMEOUT_MS = 10000
 

@@ -23,7 +23,7 @@ import type { PreflightResult } from '../../contract/results.js'
 import { fail } from '../../kernel/preflight.js'
 import { classifyGiteaError } from './errors.js'
 
-/** 探针超时（毫秒）。起步值与 GitHub/GitLab 房的识别探针同量级，接入中央超时线时一并搬走。 */
+/** 探针超时（毫秒）。起步值与 GitHub/GitLab 房的识别探针同量级；#16 拍板钉死在这，不入中央 YAML。 */
 const TEA_PROBE_TIMEOUT_MS = 3000
 // 探测只要一条：这里取 1 不是分页契约的页大小（那条契约住在 src/tracker/contract/pagination.ts，
 // 各后端同一套口径），只是「能列出一条就说明仓库可达」的最小请求，所以用本文件常量起步；

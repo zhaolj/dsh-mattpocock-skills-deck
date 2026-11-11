@@ -61,7 +61,7 @@ import type { ErrorKind } from '../../contract/identity.js'
 /** 识别这一趟要用的文件服务：就用契约上下文里那一格，不另定义形状。 */
 type MarkerFs = OpContext['fs']
 
-/** 兜底问一次 git remote 的时间上限（毫秒）：识别用的启发式探针，接入中央超时线时一并搬走。 */
+/** 兜底问一次 git remote 的时间上限（毫秒）：识别用的启发式探针；#16 拍板钉死在这，不入中央 YAML。 */
 const GITEA_FALLBACK_TIMEOUT_MS = 2000
 
 /**
