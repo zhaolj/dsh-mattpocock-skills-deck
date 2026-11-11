@@ -22,6 +22,8 @@
  *           （tea 没有 --labels 整集替换，setLabels 先读现标签再算 add/remove 差集）
  *   评注：  tea comments add <编号> --repo <refId> --description <正文> --output json
  *   改色：  tea labels update --id <数字id> --color <六位十六进制> --repo <refId> --output json
+ *   建标签：tea labels create --name <名字> --color <六位十六进制> --repo <refId> --output json
+ *           （写路径遇仓库里没有的标签先建再挂，理由见 argsLabelCreate）
  *           （update 只认标签的数字 id，不认名字：改色前先翻页拉一遍「名字→id」对照）
  *   登录：  tea logins ls --output json（default 标默认登录，user 字段是登录名；tea whoami 不出 JSON）
  *   扫仓：  tea repos ls --output json --fields owner,name,permission --limit N --page P（权限读用）
@@ -140,6 +142,15 @@ export function argsLabelsPage(refId: string, limitRows: number, page: number): 
  * 改一条标签颜色的参数：tea labels update 认标签的数字 id（不认名字），颜色给归一后的
  * 六位十六进制（不带井号）。调用方先用 argsLabelsPage 建好「名字→id」对照再发这条。
  */
+/**
+ * 建一条标签的参数：setLabels / create 遇到仓库里还没有的标签时先建再挂——tea 的
+ * --add-labels 与建票的 --labels 对不存在的标签是静默跳过且回退出码 0（2026-11-11 真机实测），
+ * 不先建就会「报成功、实际没写上」。颜色给一个中性缺省；要改颜色走 setLabelColors 那条路。
+ */
+export function argsLabelCreate(refId: string, name: string): string[] {
+  return ['labels', 'create', '--name', name, '--color', '00aabb', '--repo', refId, '--output', 'json']
+}
+
 export function argsLabelUpdate(refId: string, id: number | string, color: string): string[] {
   return ['labels', 'update', '--id', String(id), '--color', color, '--repo', refId, '--output', 'json']
 }

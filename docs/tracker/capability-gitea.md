@@ -19,7 +19,7 @@
 | reopen | 明确提供功能 | `issues/write.ts`：`tea issues reopen <编号> --repo <refId> --output json`（tea 0.16.0 里 reopen 是独立子命令，不走 edit）；回包处理与 close 同一套 |
 | comment | 明确提供功能 | `comments/write.ts`：`tea comments add <编号> --repo <refId> --description <正文> --output json`（评论写入挂在 comments 命名空间下，不是 issues <编号> comments）；回包归一回契约 Comment，正文以调用方入参为准 |
 | update | 明确提供功能 | `issues/write.ts`：`tea issues edit <编号> --repo <refId> [--title] [--description] [--milestone 名字或空串] --output json`；空补丁不发写命令、回读当前票面；customFields 明确不支持；写后回包难读时回查票面兜底 |
-| setLabels | 明确提供功能 | `labels/assign.ts`：tea 没有整集替换标签的参数，先读现标签算差集再发 `--add-labels` / `--remove-labels`（gitlab 房同一条纪律：expectedUpdatedAt 前置读，对不上回 conflict）；目标集合与现状一致时不发写命令 |
+| setLabels | 明确提供功能 | `labels/assign.ts`：tea 没有整集替换标签的参数，先读现标签算差集再发 `--add-labels` / `--remove-labels`（gitlab 房同一条纪律：expectedUpdatedAt 前置读，对不上回 conflict）；目标集合与现状一致时不发写命令；仓库里还没有的标签先建再挂——tea 对不存在的标签静默跳过且回退出码 0（2026-11-11 真机实测），写后回读按远端实况如实交、不拿调用方形状覆盖 |
 | setAssignees | 明确提供功能 | `labels/assign.ts`：`tea issues edit <编号> --set-assignees a,b` 本来就是整集替换（空串清空），一步到位；expectedUpdatedAt 前置读与 setLabels 同一套，写后回读以远端为准 |
 | setParent | 明确提供功能 | `graph/write.ts`：归属的真相写进正文头的隐藏标记 `<!-- DSH-PARENT: n -->`（`model/description-markers.ts` 一处出处，拆归属顺带清旧 `Part of` 行）；写前 `expectedUpdatedAt` 前置读、父票存在性回查，写后回读核对（读侧同一解析口径）；自挂回 conflict |
 | setBlockedBy | 明确提供功能 | `graph/write.ts`：可见 `Blocked by:` 行与隐藏机器表成对整集替换（`model/description-markers.ts` 一处出处），数据源 `tea issues edit --description`；自阻塞回 conflict，写前读邻接做环检——先单页列表打底、再从本次要写的阻塞者出发沿边展开补拉沿途的票（展开量按 `PAGINATION.gitea.subIssuesMax` 封顶，双轴评审第 6 条对齐 GitLab 房形状），成环 conflict 不落盘，快照整体拉不到记读降级放行，写后回读深比对 |
@@ -49,6 +49,7 @@
 - 2026-11-11（票 #11 落地）：8 条读操作改为明确提供功能（list / get / getDependencies / counts / listPage / listLabels / listSubIssues / listMaps），数据源是 tea 的读命令（`tea issues ls` / `tea issues <编号>` / `tea issues <编号> comments` / `tea labels ls`），分页额度收进共享分页表的 gitea 组；其余 15 条操作仍明确不支持。
 - 2026-11-11（票 #13 落地）：2 条结构写改为明确提供功能（setParent / setBlockedBy），数据源是 `tea issues edit --description` 整篇正文替换（tea 没有父子与阻塞端点）：归属写隐藏标记 `<!-- DSH-PARENT: n -->`，阻塞按可见行与隐藏机器表成对写；写前 `expectedUpdatedAt` 前置读与环检、写后回读核对，与读侧票 #11 的解析同一口径；其余 6 条操作仍明确不支持。
 - 2026-11-11（票 #12 落地）：7 条写操作改为明确提供功能（create / close / reopen / comment / update / setLabels / setAssignees），数据源是 tea 的写命令（`tea issues create` / `tea issues close` / `tea issues reopen` / `tea issues edit` / `tea comments add`，参数按本机 tea 0.16.0 的 help 逐条核对）；setLabels 因 tea 无整集替换参数改为「先读现标签算差集再 add/remove」；其余 8 条操作仍明确不支持。
+- 2026-11-11（真机验证补）：真机发现 tea 的 `--add-labels` 与建票 `--labels` 对仓库里不存在的标签是静默跳过且回退出码 0，setLabels 与 create 改为「缺的标签先 `tea labels create` 再挂」（`labels/assign.ts` 的 ensureLabelsExist）；setLabels 写后回读不再拿调用方形状覆盖，按远端实况如实交。
 - 2026-11-11（票 #14 落地）：最后六条管理类操作收口——setLabelColors / getCurrentUser / getRepoPermissions / readBudget 改为明确提供功能（数据源分别是 `tea labels update`、`tea logins ls`、`tea repos ls`，以及「Gitea 无配额端点、tea 不透出速率头」的如实回空读数）；initProject 与 ensureLabelColorsFile 仍明确不支持，但桩从注册表补改为后端实例显式桩（登记 stubBy:'backend'），理由写进登记数据与本表；新增共享分页常量 repoScanPerPage / repoScanMaxPages（gitea 组）；至此 gitea 房没有 registry 补桩形态，24 条操作全覆盖。
 
 ## 交接

@@ -30,6 +30,7 @@ import { checkIdempotencyKey } from '../../../../refresh/contract/idempotency-ke
 import { getIssue, fetchRawIssue } from './read.js'
 // 目标解析三行守卫收编在 ../support/target.ts 一处（票 #14），四个写操作入口共用。
 import { resolveTarget } from '../support/target.js'
+import { ensureLabelsExist } from '../labels/assign.js'
 import {
   type CtxLike,
   type RawBag,
@@ -99,6 +100,9 @@ export async function createIssue(
           .map((a) => (typeof a === 'string' ? a : ((a as Record<string, unknown>) || {})['login']))
           .filter((x): x is string => typeof x === 'string' && Boolean(x))
       : []
+    // 仓库里还没有的标签先建再挂：tea 的建票 --labels 对不存在的标签静默跳过
+    // （真机 2026-11-11 实测口径，与 setLabels 同一条 ensure 路）。
+    await ensureLabelsExist(effective, refId, labelNames)
     const res = await runTea(effective, argsIssueCreate(refId, input.title.trim(), description, labelNames, assigneeLogins))
     if (res.code !== 0) {
       // 原文 = 这一次 tea 调用的进程结果（stderr 里是 tea 或远端的原话）。命令可能已经写出去，

@@ -24,12 +24,16 @@ import { fetchRawIssue } from '../issues/read.js'
 // 目标解析守卫与 expectedUpdatedAt 前置读收编在 support/ 一处（票 #14），不再各房私有。
 import { resolveTarget } from '../support/target.js'
 import { preflightExpected } from '../support/expected-preflight.js'
+import { PAGINATION } from '../../../contract/pagination.js'
 import {
   type CtxLike,
   type RawBag,
   argsIssueEdit,
+  argsLabelCreate,
+  argsLabelsPage,
   errMsg,
   parseJsonBag,
+  parseJsonRows,
   runTea,
 } from '../support/tea-run.js'
 
@@ -84,6 +88,55 @@ function wantedLoginsOf(assignees: unknown): string[] {
 // setLabels / setAssignees 与 graph/write.ts 的两条结构写走同一份。
 
 /**
+ * 翻页拉一遍仓库标签名（供 ensureLabelsExist 对照用）：翻页判据与 listLabels 同一套，
+ * 到顶还是满页就抛错由调用方按 env 档失败——这里不静默截断，截断会让「以为存在」的标签漏建。
+ */
+async function repoLabelNames(effective: CtxLike | null | undefined, refId: string): Promise<string[]> {
+  const perPage = PAGINATION.gitea.labelListPerPage
+  const maxPages = PAGINATION.gitea.labelListMaxPages
+  const names: string[] = []
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await runTea(effective, argsLabelsPage(refId, perPage, page))
+    if (res.code !== 0) {
+      throw new Error(res.stderr || res.stdout || 'ensureLabels: tea labels ls 失败')
+    }
+    const text = typeof res.stdout === 'string' ? res.stdout : ''
+    const batch = parseJsonRows(text)
+    if (!batch) throw new Error('ensureLabels: tea 回包不是插件预期的数组形状')
+    for (const raw of batch as unknown[]) {
+      const name = raw && typeof raw === 'object' ? (raw as Record<string, unknown>)['name'] : raw
+      if (typeof name === 'string' && name.trim()) names.push(name)
+    }
+    if (batch.length < perPage) return names
+    if (page === maxPages) {
+      throw new Error('ensureLabels: 标签数超出一次能取的上限（' + String(maxPages * perPage) + ' 个）')
+    }
+  }
+  return names
+}
+
+/**
+ * 确保调用方要的标签在仓库里都存在，缺哪条补建哪条（真机口径：tea 对不存在的标签静默跳过，
+ * --add-labels 与建票 --labels 都一样，不先建就会报成功实际没写上）。建失败如实抛错，
+ * 由调用方的 failGitea 落档——绝不在标签没建齐的情况下继续挂标签。
+ */
+export async function ensureLabelsExist(
+  effective: CtxLike | null | undefined,
+  refId: string,
+  wanted: string[],
+): Promise<void> {
+  if (!wanted.length) return
+  const existing = new Set(await repoLabelNames(effective, refId))
+  for (const name of wanted) {
+    if (existing.has(name)) continue
+    const res = await runTea(effective, argsLabelCreate(refId, name))
+    if (res.code !== 0) {
+      throw new Error(res.stderr || res.stdout || 'ensureLabels: tea labels create 失败（' + name + '）')
+    }
+  }
+}
+
+/**
  * 整集替换一张票的标签（契约 setLabels）：expectedUpdatedAt 前置读，随后按「现标签 → 差集」
  * 发 --add-labels / --remove-labels（tea 没有整集替换参数，见文件头），写后回读交契约形状。
  *
@@ -129,17 +182,18 @@ export async function setLabels(
       issue.labels = wanted.map((name) => ({ name, color: '' }))
       return { ok: true, data: issue }
     }
+    // 仓库里还没有的标签先建再挂：tea 对不存在的标签静默跳过（真机口径，见 argsLabelCreate）。
+    await ensureLabelsExist(effective, refId, add)
     const res = await runTea(effective, argsIssueEdit(refId, k, { addLabels: add, removeLabels: remove }))
     if (res.code !== 0) {
       // 原文 = 写标签那一次 tea 调用的进程结果。
       return failGitea(new Error(res.stderr || res.stdout || 'setLabels: tea issues edit 失败'), '改标签失败：tea issues edit 没有跑成。请稍后重试。', res, effective)
     }
-    // 写后回读：差集两步有先后，回读拿到的才是远端真实的最终集合。
+    // 写后回读：差集两步有先后，回读拿到的才是远端真实的最终集合——labels 按回读如实交，
+    // 不拿调用方要的形状覆盖（真机 2026-11-11 教训：tea 对不存在的标签静默跳过，覆盖会把
+    // 「没写上」伪装成「写上了」）。
     const raw = await fetchRawIssue(effective, refId, k)
-    const issue = normalizeIssue(raw)
-    // 调用方要的形状补回去（带 color 兜底，颜色来自仓库标签清单的读路径，不在这里展开）。
-    issue.labels = wanted.map((name) => ({ name, color: '' }))
-    return { ok: true, data: issue }
+    return { ok: true, data: normalizeIssue(raw) }
   } catch (err: unknown) {
     // 原文 = 抛上来的那个 Error 对象本身。kind 为 conflict 时按透传档走，本家那句话原样留着。
     return failGitea(err, errMsg(err), err, effective)

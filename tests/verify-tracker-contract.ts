@@ -456,6 +456,13 @@ try {
           if (!hit) return { stdout: '', stderr: '404 repository does not exist [see: docs]', code: 1 }
           return { stdout: JSON.stringify(hit), stderr: '', code: 0 }
         }
+        if (args[0] === 'labels' && args[1] === 'create') {
+          const nm = flags('--name') || ''
+          if (!nm) return { stdout: '', stderr: 'name is required', code: 1 }
+          const color = (flags('--color') || '').replace('#', '')
+          if (!labelsStore.some((l) => l.name === nm)) labelsStore.push({ name: nm, color })
+          return { stdout: JSON.stringify({ name: nm, color }), stderr: '', code: 0 }
+        }
         if (args[0] === 'labels' && args[1] === 'ls') return { stdout: JSON.stringify(labelsStore), stderr: '', code: 0 }
         return { stdout: '', stderr: 'unexpected args ' + args.join(' '), code: 127 }
       },
@@ -566,6 +573,16 @@ try {
     const editCall = fake.calls.find((x) => x.args[1] === 'edit')
     const ok = res.ok && !!editCall && editCall.args.includes('--add-labels') && editCall.args[editCall.args.indexOf('--add-labels') + 1] === 'p1' && !editCall.args.includes('--remove-labels')
     results.push({ name: 'gitea-minimal · write setLabels diffs add only', ok, detail: ok ? '' : JSON.stringify({ res: res.ok ? res.data.labels : res, calls: fake.calls.map((x) => x.args.slice(0, 4)) }).slice(0, 400) })
+  }
+  // setLabels：仓库里还没有的标签先建再挂（tea 对不存在的标签静默跳过，真机 2026-11-11 口径）。
+  {
+    const fake = makeWriteFakeTea()
+    const backend = createGiteaBackend(fake)
+    const res = await backend.setLabels(repo, '1', ['brand-new'], undefined, fake)
+    const createCall = fake.calls.find((x) => x.args[0] === 'labels' && x.args[1] === 'create')
+    const editCall = fake.calls.find((x) => x.args[1] === 'edit')
+    const ok = res.ok && !!createCall && createCall.args.includes('brand-new') && !!editCall && editCall.args.includes('--add-labels') && res.data.labels.some((l) => l.name === 'brand-new')
+    results.push({ name: 'gitea-minimal · write setLabels auto-creates missing label then attaches', ok, detail: ok ? '' : JSON.stringify({ res: res.ok ? res.data.labels : res, calls: fake.calls.map((x) => x.args.slice(0, 4)) }).slice(0, 400) })
   }
   {
     const fake = makeWriteFakeTea()
