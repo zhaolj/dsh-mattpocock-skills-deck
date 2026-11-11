@@ -91,9 +91,13 @@ export async function teaPreflight(
       const message = out.trim().slice(0, 500) || 'tea login list failed'
       return fail(verdict.kind, message, out)
     }
-    // tea 的 login list 没有登录项时退出码是 0、输出为空：有工具没凭据，归 AUTH 而不是算通过。
-    const listed = String(loginRes.stdout || '').trim()
-    if (!listed) {
+    // tea 的 login list 没有登录项时退出码是 0：早期版本输出为空，新版打印一张只有表头
+    //   边框的空表格（┌─┬...└─┘，trim 后非空，不能只看 trim）。两条路都归 AUTH 而不是算通过：
+    //   去掉纯框线行后第一行是表头，表头之后一行都没有才算「零登录」。
+    const rows = String(loginRes.stdout || '')
+      .split(/\r?\n/)
+      .filter(function (line) { return /\S/.test(line) && !/^[\s─│┌└├┤┬┴┼]*$/.test(line) })
+    if (rows.length <= 1) {
       return fail(ERROR_KIND.AUTH as ErrorKind, 'tea has no login configured (run: tea login add)', '')
     }
   } catch (e: unknown) {

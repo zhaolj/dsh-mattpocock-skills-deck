@@ -57,10 +57,12 @@ export const GITEA_ERROR_RULES: readonly ErrorRule[] = [
   {
     kind: ERROR_KIND.AUTH as ErrorKind,
     layer: 'phrase',
-    pattern: /please (?:log|sign) in|not authenticated|login (?:is )?required|no login (?:configured|entry|found)/i,
+    pattern: /please (?:log|sign) in|not authenticated|login (?:is )?required|no login (?:configured|entry|found)|no available login/i,
     example: { text: 'tea: please log in before running this command' },
-    note: 'tea 在没有可用登录项时的另一句原话（服务端要求先认证）。通用表同样认不出它，'
-      + '归认证档并指向 `tea login add`，跟上一条「找不到令牌」是同一种病、同一个下一步',
+    note: 'tea 在没有可用登录项时的两句原话（服务端要求先认证、或本地一个登录项都没有时说的'
+      + ' `no available login`，2026-11-11 在 gitea.vvmath.com 实测的原话）。通用表同样认不出它们，'
+      + '归认证档并指向 `tea login add`，跟上一条「找不到令牌」是同一种病、同一个下一步；'
+      + '认不出就会落到兜底的「网络」，面板于是只显示网络异常、不出登录指引按钮',
   },
   {
     kind: ERROR_KIND.NOTFOUND as ErrorKind,

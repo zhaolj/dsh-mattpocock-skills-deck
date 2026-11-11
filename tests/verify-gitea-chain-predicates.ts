@@ -140,7 +140,10 @@ async function evaluateScenario(mods, opts) {
   const o = opts || {}
   const exe = o.teaPath === undefined ? 'C:/fake/tea' : o.teaPath
   const platform = makePlatform(exe)
-  const execPack = makeTeaExec(o.execHandler || function () { return { code: 0, stdout: 'server-1: https://gitea.example.com\n', stderr: '' } })
+  const execPack = makeTeaExec(o.execHandler || function () {
+    // 2026-11-11 实测：tea 有登录时 `login list` 打印的是一张带一条数据行的表格（不是裸单行）。
+    return { code: 0, stdout: '┌─────────┬────────────────────────┬──────────┬───────┬─────────┐\n│ NAME    │ URL                    │ SSH HOST │ USER  │ DEFAULT │\n├─────────┼────────────────────────┼──────────┼───────┼─────────┤\n│ server-1 │ https://gitea.example.com │          │ demo  │ true    │\n└─────────┴────────────────────────┴──────────┴───────┴─────────┘\n', stderr: '' }
+  })
   const sessionCtx = { cwd: 'C:/stale', caller: 'refresh', platform: platform, exec: execPack.exec }
   const repoKey = o.repoKeyReply === undefined ? { owner: 'group', name: 'proj' } : o.repoKeyReply
   const fx = makeSession(mods.teaPreflight, repoKey)
@@ -152,6 +155,9 @@ async function evaluateScenario(mods, opts) {
   const out = await chain.handleChain({ cwd: DEMO_CWD, backendId: 'gitea', lang: 'zh', force: true })
   return { out: out, fx: fx, exec: execPack, sessionCtx: sessionCtx }
 }
+
+/** 有登录时 `login list` 的真实形状：一张带一条数据行的表格（2026-11-11 实测）。 */
+const TABLE_WITH_LOGIN = '┌──────────┬─────────────────────────┬──────────┬───────┬─────────┐\n│ NAME     │ URL                     │ SSH HOST │ USER  │ DEFAULT │\n├──────────┼─────────────────────────┼──────────┼───────┼─────────┤\n│ server-1 │ https://gitea.example.com │          │ demo  │ true    │\n└──────────┴─────────────────────────┴──────────┴───────┴─────────┘\n'
 
 async function main() {
   const mods = {
@@ -255,12 +261,37 @@ async function main() {
     must(stepOf(r.out, 'tea:installed') && stepOf(r.out, 'tea:installed').status === 'done', 'tea 已装那一行是绿的', JSON.stringify(stepOf(r.out, 'tea:installed') && stepOf(r.out, 'tea:installed').status))
   }
 
+  title('④b 登出后的真实形状（login list 打印空表边框、issues ls 说 no available login）→ 登录行红并带登录指引，不许误报网络异常')
+  {
+    // 2026-11-11 实测：tea 零登录时 `login list` 退出码 0、打印只有表头边框的空表格；
+    //   后续 `issues ls` 退出码 1、原话 `Error: no available login`。两条都要接住：
+    //   空表不许算「有登录」（假绿），`no available login` 不许落兜底网络档（面板才会出登录按钮）。
+    const r = await evaluateScenario(mods, {
+      execHandler: function (cmd, args) {
+        if (args && args[1] === 'list') {
+          return { code: 0, stdout: '┌──────┬─────┬──────────┬──────┬─────────┐\n│ NAME │ URL │ SSH HOST │ USER │ DEFAULT │\n└──────┴─────┴──────────┴──────┴─────────┘\n', stderr: '' }
+        }
+        return { code: 1, stdout: '', stderr: 'Error: no available login' }
+      },
+    })
+    must(resolvedOf(r.out, 'tea:authed') && resolvedOf(r.out, 'tea:authed').status === 'fail', 'login list 只打印空表边框时「已登录 Gitea」仍判失败（不许假绿）', JSON.stringify(resolvedOf(r.out, 'tea:authed')))
+    must(String(resolvedOf(r.out, 'tea:authed').detail || '').indexOf('网络异常') < 0, '失败说明不许写成网络异常', String(resolvedOf(r.out, 'tea:authed').detail))
+    const step = stepOf(r.out, 'tea:authed')
+    must(step && step.status === 'current', '登录失败行带修复动作（current）', JSON.stringify(step && step.status))
+    const actions = (step && step.actions) || []
+    const inject = actions.find(function (a) { return a && a.type === 'inject-prompt' }) || null
+    must(!!inject, '带登录指引按钮（inject-prompt）', JSON.stringify(actions.map(function (a) { return a && a.type })))
+    must(inject && inject.label === '登录指引', '按钮标签是中文「登录指引」', JSON.stringify(inject && inject.label))
+    must(resolvedOf(r.out, 'tea:repoAccess') && resolvedOf(r.out, 'tea:repoAccess').status === 'pending', '登录失败不把仓库显示成不可达', JSON.stringify(resolvedOf(r.out, 'tea:repoAccess')))
+    must(!hasInternalString(r.out), '回包里没有英文内部串')
+  }
+
   title('⑤ 仓库 404（issues ls 失败）→ 登录行绿，仓库行红')
   {
     const r = await evaluateScenario(mods, {
       execHandler: function (cmd, args) {
         if (args && args[1] === 'ls') return { code: 1, stdout: '', stderr: '404 repository does not exist' }
-        return { code: 0, stdout: 'server-1: https://gitea.example.com\n', stderr: '' }
+        return { code: 0, stdout: TABLE_WITH_LOGIN, stderr: '' }
       },
     })
     must(resolvedOf(r.out, 'tea:authed') && resolvedOf(r.out, 'tea:authed').status === 'pass', '仓库不可达说明前两关已过：登录行判通过', JSON.stringify(resolvedOf(r.out, 'tea:authed')))
@@ -273,7 +304,7 @@ async function main() {
     const r = await evaluateScenario(mods, {
       execHandler: function (cmd, args) {
         if (args && args[1] === 'ls') throw new Error('dial tcp: connection refused')
-        return { code: 0, stdout: 'server-1: https://gitea.example.com\n', stderr: '' }
+        return { code: 0, stdout: TABLE_WITH_LOGIN, stderr: '' }
       },
     })
     must(resolvedOf(r.out, 'tea:authed') && resolvedOf(r.out, 'tea:authed').status === 'pending', '网络超时时整个 preflight 失败在 network 档，登录行 pending（不判未登录）', JSON.stringify(resolvedOf(r.out, 'tea:authed')))
