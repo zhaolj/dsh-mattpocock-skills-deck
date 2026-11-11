@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-11T10:06:10.300Z",
+  "generatedAt": "2026-11-11T10:50:46.167Z",
   "generatedBy": "node scripts/gate-map.mts",
   "chainLength": 605,
   "gateCount": 605,
@@ -10912,10 +10912,13 @@
       "step": "node tests/verify-gitea-read-log.ts",
       "file": "tests/verify-gitea-read-log.ts",
       "guards": [
+        "docs/agents/issue-tracker.md",
         "src/tracker/rooms/gitea",
+        "src/tracker/rooms/gitea/index.ts",
         "src/tracker/rooms/gitea/support/read-log.ts"
       ],
       "dirs": [
+        "docs/agents",
         "src/tracker/rooms/gitea",
         "src/tracker/rooms/gitea/support"
       ],
@@ -10923,7 +10926,7 @@
       "buildOutputOnly": false,
       "completionRecord": false,
       "expectedAssertions": 0,
-      "reason": "归属来自：读文件调用（readFileSync / readFile / path.join(ROOT, ...)） 1 条；静态 import 说明符 1 条"
+      "reason": "归属来自：读文件调用（readFileSync / readFile / path.join(ROOT, ...)） 1 条；静态 import 说明符 2 条；源码里的路径字面量 1 条"
     },
     {
       "step": "node tests/verify-gitea-repo-identity.ts",
@@ -14304,6 +14307,7 @@
       "node tests/verify-957-workspace-writer.ts",
       "node tests/verify-detection-cascade.ts",
       "node tests/verify-detection-evidence.ts",
+      "node tests/verify-gitea-read-log.ts",
       "node tests/verify-github-label-colors.ts",
       "node tests/verify-issue-body-script.ts",
       "node tests/verify-t1-getrepokey.ts",

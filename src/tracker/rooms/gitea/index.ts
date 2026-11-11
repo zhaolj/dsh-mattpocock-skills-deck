@@ -30,6 +30,8 @@ import { issueAddress, repoSearchAddress, DEFAULT_GITEA_WEB_ORIGIN } from './roo
 // #15：仓库身份（refId 与自托管实例宿主）的「学一次、describe 同步取」缓存，GitLab 房同款形状。
 import { learnGiteaIdentity, giteaIdentityOf, refIdOfRemoteUrl } from './repo/identity.js'
 import { prompts } from './room/prompts.js'
+// #18：仓库识别这一趟也要在诊断日志里留轨迹，读降级的登记出口仍是 support/read-log.ts 一处。
+import { emitReadDegraded } from './support/read-log.js'
 // 修复契约的解析口（fix-contract.resolvePrompt）要读模块的 prompts 键，按 GitLab 房同一口径把名字导出去。
 export { prompts }
 import type { ProvidedCapability, StubbedByBackend } from '../../contract/capability-answer.js'
@@ -79,6 +81,21 @@ async function readWorkspaceFile(fs: MarkerFs, cwd: string, rel: string): Promis
 }
 
 /**
+ * 顺手学下 Gitea 身份（#15），并保证它永远不改变识别结论。
+ *
+ * 学身份是识别的附带产物，不是识别结论：远端地址解析不出身份、或写内存缓存时出了岔子，只该
+ * 什么都不学，不许让 matches 从一个已经认出的 true 掉成 false，也不许被外层 catch 记成别的
+ * 失败档（#18 双轴评审指出：原先这一句放在 exec 的 try 里，它一抛错就会吞掉成功命中）。
+ */
+function learnQuietly(cwd: string, url: string): void {
+  try {
+    learnGiteaIdentity(cwd, url)
+  } catch {
+    // 附带产物失败不影响「这个工作区是不是 Gitea」的答案。
+  }
+}
+
+/**
  * Gitea matches：启发式 boolean —— 这个工作区是不是 Gitea（含 Forgejo）仓库。
  *
  * 依次看四处，任何一处指向 gitea/forgejo 就认（判据是「指向」，不是「文本里出现过这个词」）：
@@ -88,11 +105,17 @@ async function readWorkspaceFile(fs: MarkerFs, cwd: string, rel: string): Promis
  *      `# Issue tracker: Gitea` 这种高置信标题行；正文里提到 gitea 不算声明；
  *   4. 兜底真问一次 `git remote get-url origin`（best-effort）。
  * 四处都不认，或者线索不够，一律回 false —— 「不确定就当不是」是既定口径，不是故障。
+ *
+ * #18：这一趟原先不落任何日志，导出包里分不清「没跑这条路」与「跑了、折在中间」。现在每个分支
+ * 都往 read.degraded 落一行（op = matches，取值登记在 support/read-log.ts）：认出来就直接返回、
+ * 不再多记；哪条线索没问成、exec 兜底问没问、回来什么结论，各记各的，耗时按这一步自己算。
  */
 async function matches(
   handle: RepoHandle | null | undefined,
   ctx: OpContext | null | undefined,
 ): Promise<boolean> {
+  /** 整趟识别的起点：只给最外层 catch 那一档算总耗时，正常分支各算各的这一步。 */
+  const matchStartedAt = Date.now()
   try {
     if (!handle || typeof handle !== 'object') return false
     if (typeof handle.refId === 'string' && /gitea|forgejo/i.test(handle.refId)) return true
@@ -111,38 +134,81 @@ async function matches(
         : null
     if (readableFs) {
       // 1) .git/config 里记下的远端地址是否指向 gitea/forgejo（只看 [remote ...] 段）
+      // #18：没问成（文件不在、或读不出来）要留一行；读成了但里面没写 gitea 是正常的否定结论，
+      // 不记——读成功本身就证明这条线索问过了，值得记的只有「没问到答案」那一档。
+      const cfgStartedAt = Date.now()
       const cfg = await readWorkspaceFile(readableFs, cwd, '.git/config')
-      if (cfg !== null) {
+      if (cfg === null) {
+        emitReadDegraded(ctx, 'matches', 'matches:git-config', Date.now() - cfgStartedAt)
+      } else {
         const urls = remoteUrlsOfGitConfig(cfg)
         // #15：认仓库这一趟远端地址就在手里，顺手把身份（owner/name 与实例宿主）学下来，
         // 后面 select 里的 describe（同步纯函数）才能回出权威地址；学到什么不影响本函数的布尔结论。
-        for (const u of urls) if (/gitea|forgejo/i.test(u)) learnGiteaIdentity(cwd, u)
+        for (const u of urls) if (/gitea|forgejo/i.test(u)) learnQuietly(cwd, u)
         if (urls.some((u) => /gitea|forgejo/i.test(u))) return true
       }
       // 2) issue-tracker.md 声明的是不是 Gitea：只认高置信标题行（#1555 同一口径）。
+      // #18：与上一条同口径——只记「没问成」，读成但没声明 gitea 不记。
+      const docStartedAt = Date.now()
       const doc = await readWorkspaceFile(readableFs, cwd, 'docs/agents/issue-tracker.md')
-      if (doc !== null) {
+      if (doc === null) {
+        emitReadDegraded(ctx, 'matches', 'matches:tracker-doc', Date.now() - docStartedAt)
+      } else {
         const parsed = parseIssueTracker(normalizeTrackerText(doc))
         if (parsed && parsed.confidence === 'high' && parsed.explicitBackendId === 'gitea') return true
       }
+    } else {
+      // #17 之后「文件服务不可用」是正常兜底分支：两条文件线索整段跳过、继续走 exec，不是识别失败。
+      // #18：这一跳也必须留一行，否则导出包里分不清「两条线索问了、都说不是」与「根本没问」。
+      // 耗时记 0：这一档没有真去读任何东西。
+      emitReadDegraded(ctx, 'matches', 'matches:fs-skipped', 0)
     }
     // 3) exec git remote 兜底（best-effort）
+    // #18：兜底问没问、回来什么结论、花了多久，都记下来——无文件服务的上下路径里它是唯一线索，
+    // 只有日志能回答「是没问，还是问了没认出来」。命中先学身份再记，顺序不影响布尔结论。
     const exec = ctx && ctx.exec
     if (exec) {
-      const res = await exec('git', ['remote', 'get-url', 'origin'], {
-        cwd,
-        timeout: GITEA_FALLBACK_TIMEOUT_MS,
-      })
-      const out = (res.stdout || '') + (res.stderr || '')
-      if (/gitea|forgejo/i.test(out)) {
+      const execStartedAt = Date.now()
+      // 契约（src/tracker/contract/contexts.ts 的 exec）写明：起进程返回回包、不抛异常，失败原因在
+      // code（非零退出）或 error（进程起不来）里。所以「兜底这一问问成没问成」要看回包，不能只按
+      // 有没有抛错来分；抛错那一支留给不守契约的实现，按同一档记。
+      let out: string | null = null
+      let execFailed = false
+      try {
+        const res = await exec('git', ['remote', 'get-url', 'origin'], {
+          cwd,
+          timeout: GITEA_FALLBACK_TIMEOUT_MS,
+        })
+        const chunks = [res.stdout, res.stderr, res.text, res.data && res.data.stdout]
+        out = chunks.filter((s) => typeof s === 'string').join('\n')
+        execFailed =
+          (typeof res.code === 'number' && res.code !== 0) ||
+          (typeof res.error === 'string' && res.error.length > 0)
+      } catch {
+        // 不守契约的实现才会走到这里：命令本身没起来，同样是「兜底这一问没问成」。
+        execFailed = true
+      }
+      const execElapsed = Date.now() - execStartedAt
+      if (out !== null && /gitea|forgejo/i.test(out)) {
         // #15：兜底这一趟认出的是 Gitea，也把身份学下来（同 .git/config 那一趟的道理）。
         const url = out.split('\n').map((l) => l.trim()).find((l) => /gitea|forgejo/i.test(l))
-        if (url) learnGiteaIdentity(cwd, url)
+        if (url) learnQuietly(cwd, url)
+        emitReadDegraded(ctx, 'matches', 'matches:exec-hit', execElapsed)
         return true
       }
+      if (execFailed) {
+        // 兜底这一问没问成（git 不在、目录不是仓库、超时被杀）：不等于「不是 Gitea」。
+        emitReadDegraded(ctx, 'matches', 'matches:exec-fail', execElapsed)
+      } else {
+        emitReadDegraded(ctx, 'matches', 'matches:exec-miss', execElapsed)
+      }
+    } else {
+      // 上下文没给 exec：兜底这一问根本没发出，与「问了、回来说不是」必须分得开。
+      emitReadDegraded(ctx, 'matches', 'matches:exec-unavailable', 0)
     }
     return false
   } catch {
+    emitReadDegraded(ctx, 'matches', 'matches:unknown', Date.now() - matchStartedAt)
     return false
   }
 }
