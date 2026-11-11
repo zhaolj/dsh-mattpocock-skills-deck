@@ -27,6 +27,8 @@ import { backendItemsOf } from '../../../shared/tracker/check-catalog-dirs.js'
 // 声明文件用判定层同一套解析器，只认「声明」不认「正文里提了一句」（#1555 同一口径）。
 import { normalizeTrackerText, parseIssueTracker } from '../../kernel/issue-tracker-declaration.js'
 import { issueAddress, repoSearchAddress, DEFAULT_GITEA_WEB_ORIGIN } from './room/links.js'
+// #15：仓库身份（refId 与自托管实例宿主）的「学一次、describe 同步取」缓存，GitLab 房同款形状。
+import { learnGiteaIdentity, giteaIdentityOf, refIdOfRemoteUrl } from './repo/identity.js'
 import { prompts } from './room/prompts.js'
 // 修复契约的解析口（fix-contract.resolvePrompt）要读模块的 prompts 键，按 GitLab 房同一口径把名字导出去。
 export { prompts }
@@ -105,7 +107,13 @@ async function matches(
     if (!canRead) return false
     // 1) .git/config 里记下的远端地址是否指向 gitea/forgejo（只看 [remote ...] 段）
     const cfg = await readWorkspaceFile(fs, cwd, '.git/config')
-    if (cfg !== null && remoteUrlsOfGitConfig(cfg).some((u) => /gitea|forgejo/i.test(u))) return true
+    if (cfg !== null) {
+      const urls = remoteUrlsOfGitConfig(cfg)
+      // #15：认仓库这一趟远端地址就在手里，顺手把身份（owner/name 与实例宿主）学下来，
+      // 后面 select 里的 describe（同步纯函数）才能回出权威地址；学到什么不影响本函数的布尔结论。
+      for (const u of urls) if (/gitea|forgejo/i.test(u)) learnGiteaIdentity(cwd, u)
+      if (urls.some((u) => /gitea|forgejo/i.test(u))) return true
+    }
     // 2) issue-tracker.md 声明的是不是 Gitea：只认高置信标题行（#1555 同一口径）。
     const doc = await readWorkspaceFile(fs, cwd, 'docs/agents/issue-tracker.md')
     if (doc !== null) {
@@ -120,7 +128,12 @@ async function matches(
         timeout: GITEA_FALLBACK_TIMEOUT_MS,
       })
       const out = (res.stdout || '') + (res.stderr || '')
-      if (/gitea|forgejo/i.test(out)) return true
+      if (/gitea|forgejo/i.test(out)) {
+        // #15：兜底这一趟认出的是 Gitea，也把身份学下来（同 .git/config 那一趟的道理）。
+        const url = out.split('\n').map((l) => l.trim()).find((l) => /gitea|forgejo/i.test(l))
+        if (url) learnGiteaIdentity(cwd, url)
+        return true
+      }
     }
     return false
   } catch {
@@ -129,8 +142,13 @@ async function matches(
 }
 
 /**
- * 产出仓库身份：refId 优先用传入的标识，缺了才拿目录名顶上；host 用调用方给的，缺了退回官方站。
- * 起步不做 GitLab 房那套「从 .git/config 学实例地址」的展开，接自托管实例时补。
+ * 产出仓库身份：refId 优先用传入的标识，缺了才用「认仓库时学到的这一份」（getRepoKey / matches
+ * 在读远端地址那一趟记下的 owner/name），都缺才拿目录名顶上；宿主同样先用调用方给的，缺了用
+ * 学到的这台实例，都没有才退回官方站。
+ *
+ * #15 之前这一格只信调用方，自托管实例的宿主与 owner/name 都带不进来，describe 回
+ * `{ refId:'', url:'' }`，宿主刷新链只能手拼 github.com，自托管 Gitea 拿到错页面。
+ * 「从 .git/config 学实例地址」原是源码注释里自己认的待办，本票把待办落地（GitLab 房同款形状）。
  */
 export function describe(
   handle: RepoHandle | Partial<RepositoryRef> | null | undefined,
@@ -143,11 +161,14 @@ export function describe(
     handle && typeof (handle as Partial<RepositoryRef>).host === 'string'
       ? String((handle as Partial<RepositoryRef>).host).trim().replace(/\/+$/, '')
       : ''
-  const refId = rawRef
+  const learned = cwd ? giteaIdentityOf(cwd) : null
+  const host = declaredHost || (learned ? learned.origin : '')
+  // 学到的 refId 只在调用方没给时顶上：调用方显式给的标识是第一真源，不覆盖。
+  const refId = rawRef || (learned ? learned.refId : '')
   const name = refId || (cwd ? cwd.split(/[\\/]/).pop() || cwd : backendId) || backendId
-  const url = refId && refId.includes('/') ? (declaredHost || DEFAULT_GITEA_WEB_ORIGIN) + '/' + refId : ''
+  const url = refId && refId.includes('/') ? (host || DEFAULT_GITEA_WEB_ORIGIN) + '/' + refId : ''
   const ref: RepositoryRef = { backend: backendId, refId: refId || '', name, url }
-  if (declaredHost && declaredHost !== DEFAULT_GITEA_WEB_ORIGIN) ref.host = declaredHost
+  if (host && host !== DEFAULT_GITEA_WEB_ORIGIN) ref.host = host
   return ref
 }
 
@@ -173,20 +194,15 @@ export type GiteaBackendShape = { [K in GiteaBackendMembers]: Tracker[K] }
  *   · https(s)://host/owner/name(.git)；
  *   · git@host:owner/name(.git)（scp 写法）；
  *   · ssh://git@host/owner/name(.git)。
- * owner/name 取路径最后两段，尾巴的 .git 去掉；解析不出来（没有两段、或者拿不到远端地址）
- * 诚实回 null——契约对定位口只有「名字或者空」这一种答案形态。
+ * owner/name 取路径最后两段，尾巴的 .git 去掉；解析规则只有 repo/identity.ts 里一份，
+ * 这里委托过去（#15：describe 也要用同一套解析，两份拷贝迟早对不上）。
+ * 解析不出来（没有两段、或者拿不到远端地址）诚实回 null——契约对定位口只有「名字或者空」这一种答案形态。
  */
 function repoKeyFromRemoteUrl(url: string): { owner: string; name: string } | null {
-  const trimmed = url.trim()
-  const withoutSuffix = trimmed.replace(/\.git$/i, '')
-  // scp 写法先转成普通路径形状再切段：git@host:owner/name → host/owner/name
-  const normalized = withoutSuffix.replace(/^[^/:]+:/, (m) => (m.includes('@') && !m.includes('/') ? m.replace(':', '/') : m))
-  const segments = normalized.split('/').filter(Boolean)
-  if (segments.length < 2) return null
-  const name = segments[segments.length - 1]
-  const owner = segments[segments.length - 2]
-  if (!owner || !name || owner.includes('@') || owner.includes(':')) return null
-  return { owner, name }
+  const refId = refIdOfRemoteUrl(url)
+  if (!refId) return null
+  const slash = refId.indexOf('/')
+  return { owner: refId.slice(0, slash), name: refId.slice(slash + 1) }
 }
 
 /**
@@ -244,7 +260,10 @@ export function createGiteaBackend(ctx: BackendContext): GiteaBackendShape {
         })
         const url = ((res.stdout || '') + '\n' + (res.stderr || '')).split('\n').map((l) => l.trim()).find(Boolean)
         if (!url) return null
-        return repoKeyFromRemoteUrl(url)
+        const key = repoKeyFromRemoteUrl(url)
+        // #15：认出仓库的同一趟把身份学下来（owner/name 与实例宿主），describe 同步取这份缓存。
+        if (key) learnGiteaIdentity(cwd, url)
+        return key
       } catch {
         return null
       }
