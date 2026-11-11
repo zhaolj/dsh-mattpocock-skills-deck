@@ -100,25 +100,31 @@ async function matches(
     if (!cwd || typeof cwd !== 'string') return false
     const platform = ctx && ctx.platform
     const fs = (ctx && ctx.fs) || (platform && platform.fs)
-    const canRead =
-      !!fs &&
+    // #17：文件系统不可用（fs 缺失，或缺 resolve / readText 其中之一）只说明「依赖 fs 的两条线索
+    // 这一趟问不到」，不等于「不是 Gitea」。这里不再提前返回，而是把这两条线索整段跳过，
+    // 继续落到下面的 exec 兜底——否则兜底在无 fs 的上下路径上永远不可达（#15 探针实测 execCalls = []）。
+    const readableFs =
+      fs &&
       typeof (fs as { resolve?: unknown }).resolve === 'function' &&
       typeof (fs as { readText?: unknown }).readText === 'function'
-    if (!canRead) return false
-    // 1) .git/config 里记下的远端地址是否指向 gitea/forgejo（只看 [remote ...] 段）
-    const cfg = await readWorkspaceFile(fs, cwd, '.git/config')
-    if (cfg !== null) {
-      const urls = remoteUrlsOfGitConfig(cfg)
-      // #15：认仓库这一趟远端地址就在手里，顺手把身份（owner/name 与实例宿主）学下来，
-      // 后面 select 里的 describe（同步纯函数）才能回出权威地址；学到什么不影响本函数的布尔结论。
-      for (const u of urls) if (/gitea|forgejo/i.test(u)) learnGiteaIdentity(cwd, u)
-      if (urls.some((u) => /gitea|forgejo/i.test(u))) return true
-    }
-    // 2) issue-tracker.md 声明的是不是 Gitea：只认高置信标题行（#1555 同一口径）。
-    const doc = await readWorkspaceFile(fs, cwd, 'docs/agents/issue-tracker.md')
-    if (doc !== null) {
-      const parsed = parseIssueTracker(normalizeTrackerText(doc))
-      if (parsed && parsed.confidence === 'high' && parsed.explicitBackendId === 'gitea') return true
+        ? fs
+        : null
+    if (readableFs) {
+      // 1) .git/config 里记下的远端地址是否指向 gitea/forgejo（只看 [remote ...] 段）
+      const cfg = await readWorkspaceFile(readableFs, cwd, '.git/config')
+      if (cfg !== null) {
+        const urls = remoteUrlsOfGitConfig(cfg)
+        // #15：认仓库这一趟远端地址就在手里，顺手把身份（owner/name 与实例宿主）学下来，
+        // 后面 select 里的 describe（同步纯函数）才能回出权威地址；学到什么不影响本函数的布尔结论。
+        for (const u of urls) if (/gitea|forgejo/i.test(u)) learnGiteaIdentity(cwd, u)
+        if (urls.some((u) => /gitea|forgejo/i.test(u))) return true
+      }
+      // 2) issue-tracker.md 声明的是不是 Gitea：只认高置信标题行（#1555 同一口径）。
+      const doc = await readWorkspaceFile(readableFs, cwd, 'docs/agents/issue-tracker.md')
+      if (doc !== null) {
+        const parsed = parseIssueTracker(normalizeTrackerText(doc))
+        if (parsed && parsed.confidence === 'high' && parsed.explicitBackendId === 'gitea') return true
+      }
     }
     // 3) exec git remote 兜底（best-effort）
     const exec = ctx && ctx.exec

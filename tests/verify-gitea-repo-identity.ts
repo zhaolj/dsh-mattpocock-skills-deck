@@ -5,12 +5,14 @@
 // gitea.vvmath.com:8443）与 owner/name 都带不出来，describe 回 { refId:'', url:'' }。
 // 修法与 GitLab 房同款形状：认仓库（matches / getRepoKey）那一趟顺手把身份学进进程内缓存，
 // describe 同步取；宿主 repoUrlOf 给 gitea 一条不撒谎的退路（gitea.com，绝不拼 github.com）。
-// 断言五件事：
+// 断言六件事：
 //   1. 解析器：https（含端口）/ scp / ssh 三类远端地址都解析得出宿主与 owner/name，非 gitea 地址不认；
 //   2. describe：学过的（cwd）回真机 refId 与 https://gitea.vvmath.com:8443/ 开头的 url；没学过的诚实回空；
 //   3. describe：调用方显式给的 refId 是第一真源，学到的只补缺，不覆盖；
 //   4. getRepoKey 与 matches 认出仓库的同一趟真的把身份学了（桩执行器真跑这条链）；
-//   5. 宿主 repoUrlOf：gitea 有自己的退路宿主，且源码里不再有 gitea → github.com 的拼接。
+//   5. #17：没有 fs、只给 exec 时，matches 的 git remote 兜底要真走得到（修复前是死代码），
+//      认出的远端地址同样要学成身份；无 fs 且 exec 认不出 / 干脆没有 exec 时回 false、不抛错；
+//   6. 宿主 repoUrlOf：gitea 有自己的退路宿主，且源码里不再有 gitea → github.com 的拼接。
 import { parseGiteaOrigin, learnGiteaIdentity, giteaIdentityOf, refIdOfRemoteUrl } from '../src/tracker/rooms/gitea/repo/identity.js'
 import { describe, createGiteaBackend } from '../src/tracker/rooms/gitea/index.js'
 
@@ -81,15 +83,54 @@ const fsStub = {
   readText: async () => gitConfig,
 }
 const matchedViaModule = await import('../src/tracker/rooms/gitea/index.js')
-const matchedOk = await (matchedViaModule.giteaBackend as unknown as { matches: (h: unknown, c: unknown) => Promise<boolean> }).matches(
-  { cwd: '/ws/matches', refId: '' },
-  { fs: fsStub },
-)
+// matches 不是契约成员，模块对象上只看得见「回布尔」这一格：三处判据共用这一次收窄，别各写一份。
+const matchesWith = async (handle: unknown, ctx: unknown): Promise<boolean> =>
+  (matchedViaModule.giteaBackend as unknown as { matches: (h: unknown, c: unknown) => Promise<boolean> }).matches(handle, ctx)
+const matchedOk = await matchesWith({ cwd: '/ws/matches', refId: '' }, { fs: fsStub })
 check(matchedOk === true, 'matches 靠 .git/config 认出 Gitea')
 const afterMatches = describe({ cwd: '/ws/matches', refId: '' } as never, 'gitea')
 check(afterMatches.url === REAL_ORIGIN + '/' + REAL_REF, 'matches 这一趟也把身份学了：' + afterMatches.url)
 
-// 5. 宿主 repoUrlOf 的退路：源码断言（该函数不导出，按门禁既有口径读源码）
+// 5. #17：没有 fs、只给 exec 时，兜底必须真的走得到
+// 修复前 canRead 为假就 return false，下面这些桩里的 exec 一次都不会被调到（execCalls 恒为 0）。
+const execCalls: string[] = []
+const execStub = async (cmd: string, args: string[]) => {
+  execCalls.push([cmd, ...args].join(' '))
+  return { code: 0, stdout: REAL_URL + '\n', stderr: '' }
+}
+const matchedNoFs = await matchesWith({ cwd: '/ws/no-fs', refId: '' }, { exec: execStub })
+check(matchedNoFs === true, '无 fs、只有 exec：靠 git remote 兜底认出 Gitea')
+check(execCalls.length === 1 && execCalls[0] === 'git remote get-url origin', '兜底真被调用一次：' + JSON.stringify(execCalls))
+const afterNoFs = describe({ cwd: '/ws/no-fs', refId: '' } as never, 'gitea')
+check(afterNoFs.url === REAL_ORIGIN + '/' + REAL_REF, '兜底这一趟也把身份学了：' + afterNoFs.url)
+
+// fs 只长了一半（有 resolve、缺 readText）：同一分支，也要跳过两条 fs 线索落到兜底
+const halfFsCalls: string[] = []
+const matchedHalfFs = await matchesWith(
+  { cwd: '/ws/half-fs', refId: '' },
+  {
+    fs: { resolve: async () => '/fake/.git/config' },
+    exec: async (cmd: string, args: string[]) => {
+      halfFsCalls.push([cmd, ...args].join(' '))
+      return { code: 0, stdout: REAL_URL + '\n', stderr: '' }
+    },
+  },
+)
+check(matchedHalfFs === true, 'fs 缺 readText：同样落到 exec 兜底')
+check(halfFsCalls.length === 1, 'fs 缺 readText 时兜底也只跑一次：' + JSON.stringify(halfFsCalls))
+
+// 无 fs、exec 回的是别的平台地址：回 false，不抛错
+const matchedNoFsOther = await matchesWith(
+  { cwd: '/ws/no-fs-other', refId: '' },
+  { exec: async () => ({ code: 0, stdout: 'https://github.com/zhaolj/demo.git\n', stderr: '' }) },
+)
+check(matchedNoFsOther === false, '无 fs、兜底地址不指向 gitea：回 false')
+
+// 无 fs 且没有 exec：回 false，不抛错
+const matchedNoFsNoExec = await matchesWith({ cwd: '/ws/no-fs-no-exec', refId: '' }, {})
+check(matchedNoFsNoExec === false, '无 fs 且无 exec：回 false，不抛错')
+
+// 6. 宿主 repoUrlOf 的退路：源码断言（该函数不导出，按门禁既有口径读源码）
 const { readFileSync } = await import('node:fs')
 const hostSrc = readFileSync(new URL('../src/refresh/rooms/host/issue-list-fetch.ts', import.meta.url), 'utf8')
 check(hostSrc.includes("'https://gitea.com/'"), '宿主退路里 gitea 有自己的官方站宿主')

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-11T07:32:17.287Z",
+  "generatedAt": "2026-11-11T10:06:10.300Z",
   "generatedBy": "node scripts/gate-map.mts",
   "chainLength": 605,
   "gateCount": 605,
@@ -13435,6 +13435,9 @@
         "src/tracker/detection/workspaceStore.ts",
         "src/tracker/kernel/outbound-tiers.ts",
         "src/tracker/registry/core.ts",
+        "src/tracker/rooms/gitea/index.ts",
+        "src/tracker/rooms/gitea/preflight.ts",
+        "src/tracker/rooms/gitea/support/tea-run.ts",
         "src/tracker/rooms/github/read/issues.ts",
         "src/tracker/rooms/github/routing/idempotency.ts",
         "src/tracker/rooms/github/routing/runtime-capability.ts",
@@ -13486,6 +13489,8 @@
         "src/tracker/detection",
         "src/tracker/kernel",
         "src/tracker/registry",
+        "src/tracker/rooms/gitea",
+        "src/tracker/rooms/gitea/support",
         "src/tracker/rooms/github/read",
         "src/tracker/rooms/github/routing",
         "src/tracker/rooms/github/transport",
@@ -13500,7 +13505,7 @@
       "buildOutputOnly": false,
       "completionRecord": false,
       "expectedAssertions": 0,
-      "reason": "归属来自：读文件调用（readFileSync / readFile / path.join(ROOT, ...)） 6 条；静态 import 说明符 2 条；源码里的路径字面量 185 条"
+      "reason": "归属来自：读文件调用（readFileSync / readFile / path.join(ROOT, ...)） 6 条；静态 import 说明符 2 条；源码里的路径字面量 188 条"
     },
     {
       "step": "node tests/verify-tip-place.ts",
@@ -16061,6 +16066,7 @@
       "node tests/verify-gitea-chain-predicates.ts",
       "node tests/verify-gitea-read-log.ts",
       "node tests/verify-gitea-repo-identity.ts",
+      "node tests/verify-time-config.ts",
       "node tests/verify-tracker-contract.ts"
     ],
     "src/tracker/rooms/gitea/issues": [
@@ -16076,7 +16082,8 @@
     "src/tracker/rooms/gitea/support": [
       "node tests/verify-capability-register.ts",
       "node tests/verify-gitea-issue-url.ts",
-      "node tests/verify-gitea-read-log.ts"
+      "node tests/verify-gitea-read-log.ts",
+      "node tests/verify-time-config.ts"
     ],
     "src/tracker/rooms/github": [
       "node tests/verify-no-mixed-session.ts",
