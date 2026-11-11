@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-11T04:27:06.475Z",
+  "generatedAt": "2026-11-11T06:48:13.523Z",
   "generatedBy": "node scripts/gate-map.mts",
-  "chainLength": 603,
-  "gateCount": 603,
-  "attributedGates": 546,
+  "chainLength": 604,
+  "gateCount": 604,
+  "attributedGates": 547,
   "unattributedGates": 57,
   "buildOutputOnlyGates": 21,
   "completionRecordedGates": 143,
@@ -10890,6 +10890,25 @@
       "reason": "归属来自 文件头 // 门禁归属: 注释（共 7 条）"
     },
     {
+      "step": "node tests/verify-gitea-issue-url.ts",
+      "file": "tests/verify-gitea-issue-url.ts",
+      "guards": [
+        "src/tracker/rooms/gitea/issues/read.ts",
+        "src/tracker/rooms/gitea/model/normalize.ts",
+        "src/tracker/rooms/gitea/support/tea-run.ts"
+      ],
+      "dirs": [
+        "src/tracker/rooms/gitea/issues",
+        "src/tracker/rooms/gitea/model",
+        "src/tracker/rooms/gitea/support"
+      ],
+      "unattributed": false,
+      "buildOutputOnly": false,
+      "completionRecord": false,
+      "expectedAssertions": 0,
+      "reason": "归属来自：静态 import 说明符 3 条"
+    },
+    {
       "step": "node tests/verify-gitea-read-log.ts",
       "file": "tests/verify-gitea-read-log.ts",
       "guards": [
@@ -16023,11 +16042,16 @@
       "node tests/verify-gitea-read-log.ts",
       "node tests/verify-tracker-contract.ts"
     ],
+    "src/tracker/rooms/gitea/issues": [
+      "node tests/verify-gitea-issue-url.ts"
+    ],
     "src/tracker/rooms/gitea/model": [
+      "node tests/verify-gitea-issue-url.ts",
       "node tests/verify-tracker-contract.ts"
     ],
     "src/tracker/rooms/gitea/support": [
       "node tests/verify-capability-register.ts",
+      "node tests/verify-gitea-issue-url.ts",
       "node tests/verify-gitea-read-log.ts"
     ],
     "src/tracker/rooms/github": [
@@ -16673,7 +16697,7 @@
     "coveredFileCount": 1014,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
-    "dedicatedDirCount": 83,
+    "dedicatedDirCount": 84,
     "guardedFiles": [
       "src/client/floating/Pop.ts",
       "src/client/floating/SkillFloatList.ts",
@@ -17858,6 +17882,7 @@
       "src/tracker/registry",
       "src/tracker/rooms",
       "src/tracker/rooms/gitea",
+      "src/tracker/rooms/gitea/issues",
       "src/tracker/rooms/gitea/model",
       "src/tracker/rooms/gitea/support",
       "src/tracker/rooms/github",
@@ -17955,10 +17980,6 @@
       {
         "path": "src/tracker/rooms/gitea/graph",
         "fileCount": 2
-      },
-      {
-        "path": "src/tracker/rooms/gitea/issues",
-        "fileCount": 6
       },
       {
         "path": "src/tracker/rooms/gitea/labels",

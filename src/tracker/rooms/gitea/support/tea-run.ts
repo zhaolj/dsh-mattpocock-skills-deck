@@ -117,6 +117,10 @@ export function narrowStateOf(filter: Partial<ListFilter> | null | undefined): '
 /** 列表页的参数（本房词汇表的唯一出处）：state 收窄由调用方给好（open / closed / all）。 */
 export function argsIssueListPage(refId: string, state: 'open' | 'closed' | 'all', labels: string[], limitRows: number, page: number): string[] {
   const args = ['issues', 'ls', '--repo', refId, '--state', state, '--output', 'json', '--limit', String(limitRows), '--page', String(page)]
+  // tea ls 的默认字段表里没有 url（真机实测 tea 0.16：默认回 index/title/state/author/milestone/labels/owner/repo），
+  // 行地址就一直是空串，面板上「复制链接」「在跟踪器打开」两个按钮全废。显式点名字段表＝默认表 + url，
+  // 不多要 body 等大字段（列表行的正文口径不变，正文只在单票 get 里取）。
+  args.push('--fields', 'index,title,state,author,milestone,labels,owner,repo,url')
   if (labels.length) args.push('--labels', labels.join(','))
   return args
 }

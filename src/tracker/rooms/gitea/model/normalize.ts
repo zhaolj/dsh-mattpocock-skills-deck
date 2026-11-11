@@ -277,7 +277,16 @@ export function normalizeIssue(raw: unknown): Issue {
 
   const title = bag && typeof bag['title'] === 'string' ? (bag['title'] as string) : ''
   const body = bodyOf(raw)
-  const url = bag && typeof bag['html_url'] === 'string' ? (bag['html_url'] as string) : ''
+  // tea 的字段名是 `url`（GitHub API 才叫 html_url）：真机实测（tea 0.16，单票 get 与
+  // `issues ls --fields …,url` 两条路）回的都是 `url`，值就是网页地址。两个名字都认，
+  // html_url 优先——万一某个 tea 版本按 Gitea API 原生形状透传，html_url 才是网页地址
+  // （原生 API 的 `url` 是 API 端点，不是给人点的页面）。
+  const url =
+    bag && typeof bag['html_url'] === 'string'
+      ? (bag['html_url'] as string)
+      : bag && typeof bag['url'] === 'string' && /^https?:\/\//i.test(bag['url'] as string)
+        ? (bag['url'] as string)
+        : ''
   const createdAt =
     bag && typeof bag['created_at'] === 'string'
       ? (bag['created_at'] as string)
