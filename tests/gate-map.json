@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-11T10:50:46.167Z",
+  "generatedAt": "2026-11-12T18:21:20.053Z",
   "generatedBy": "node scripts/gate-map.mts",
-  "chainLength": 605,
-  "gateCount": 605,
-  "attributedGates": 548,
+  "chainLength": 606,
+  "gateCount": 606,
+  "attributedGates": 549,
   "unattributedGates": 57,
   "buildOutputOnlyGates": 21,
   "completionRecordedGates": 143,
@@ -10890,6 +10890,26 @@
       "reason": "归属来自 文件头 // 门禁归属: 注释（共 7 条）"
     },
     {
+      "step": "node tests/verify-gitea-executor-preflight.ts",
+      "file": "tests/verify-gitea-executor-preflight.ts",
+      "guards": [
+        "src/tracker/contract/results.ts",
+        "src/tracker/rooms/gitea/index.ts",
+        "src/tracker/rooms/gitea/preflight.ts",
+        "src/tracker/rooms/gitea/room/prompts.ts"
+      ],
+      "dirs": [
+        "src/tracker/contract",
+        "src/tracker/rooms/gitea",
+        "src/tracker/rooms/gitea/room"
+      ],
+      "unattributed": false,
+      "buildOutputOnly": false,
+      "completionRecord": false,
+      "expectedAssertions": 0,
+      "reason": "归属来自 文件头 // 门禁归属: 注释（共 4 条）"
+    },
+    {
       "step": "node tests/verify-gitea-issue-url.ts",
       "file": "tests/verify-gitea-issue-url.ts",
       "guards": [
@@ -15959,6 +15979,7 @@
       "node tests/verify-error-rule-samples.ts",
       "node tests/verify-error-single-source.ts",
       "node tests/verify-field-tri-state.ts",
+      "node tests/verify-gitea-executor-preflight.ts",
       "node tests/verify-issue195.ts",
       "node tests/verify-labels-sync.ts",
       "node tests/verify-markdown-label-colors.ts",
@@ -16068,6 +16089,7 @@
     ],
     "src/tracker/rooms/gitea": [
       "node tests/verify-gitea-chain-predicates.ts",
+      "node tests/verify-gitea-executor-preflight.ts",
       "node tests/verify-gitea-read-log.ts",
       "node tests/verify-gitea-repo-identity.ts",
       "node tests/verify-time-config.ts",
@@ -16082,6 +16104,9 @@
     ],
     "src/tracker/rooms/gitea/repo": [
       "node tests/verify-gitea-repo-identity.ts"
+    ],
+    "src/tracker/rooms/gitea/room": [
+      "node tests/verify-gitea-executor-preflight.ts"
     ],
     "src/tracker/rooms/gitea/support": [
       "node tests/verify-capability-register.ts",
@@ -16732,7 +16757,7 @@
     "coveredFileCount": 1015,
     "ungatedFileCount": 0,
     "ungatedDirCount": 0,
-    "dedicatedDirCount": 85,
+    "dedicatedDirCount": 86,
     "guardedFiles": [
       "src/client/floating/Pop.ts",
       "src/client/floating/SkillFloatList.ts",
@@ -17921,6 +17946,7 @@
       "src/tracker/rooms/gitea/issues",
       "src/tracker/rooms/gitea/model",
       "src/tracker/rooms/gitea/repo",
+      "src/tracker/rooms/gitea/room",
       "src/tracker/rooms/gitea/support",
       "src/tracker/rooms/github",
       "src/tracker/rooms/github/channels/graphql",
@@ -18021,10 +18047,6 @@
       {
         "path": "src/tracker/rooms/gitea/labels",
         "fileCount": 3
-      },
-      {
-        "path": "src/tracker/rooms/gitea/room",
-        "fileCount": 2
       },
       {
         "path": "src/tracker/rooms/github/channels",

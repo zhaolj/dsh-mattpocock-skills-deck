@@ -20,7 +20,7 @@ import type { BackendModule } from '../../contract/backend-module.js'
 import type { BackendId } from '../../contract/identity.js'
 import type { RepositoryRef } from '../../contract/entities.js'
 import type { BackendContext, OpContext, RepoHandle } from '../../contract/contexts.js'
-import { teaPreflight } from './preflight.js'
+import { giteaPreflight } from './preflight.js'
 import { remoteUrlsOfGitConfig } from '../../kernel/git-remote.js'
 // 模块检查表由检查目录派生（与 GitHub 房同一口径：目录是唯一真源，这里不再手抄第二份）。
 import { backendItemsOf } from '../../../shared/tracker/check-catalog-dirs.js'
@@ -288,7 +288,9 @@ export function createGiteaBackend(ctx: BackendContext): GiteaBackendShape {
     id: 'gitea',
     describe: (handle: RepoHandle | Partial<RepositoryRef> | null | undefined) => describe(handle, 'gitea'),
     issueAddress: (ref: Partial<RepositoryRef> | null | undefined, key: string | number) => issueAddress(ref, key),
-    preflight: (handle: RepoHandle | null | undefined, opCtx: OpContext | null | undefined) => teaPreflight(handle, opCtx || ctx),
+    // 票 #21：preflight 入口换成「先探 gt、探不上落回 tea」的 giteaPreflight；
+    // teaPreflight 仍从 preflight.ts 导出，探活的 tea 三步行为不变。
+    preflight: (handle: RepoHandle | null | undefined, opCtx: OpContext | null | undefined) => giteaPreflight(handle, opCtx || ctx),
     /**
      * 定位口：问「这个仓库叫什么」。从 `.git/config` 记下的远端地址解析 owner/name
      * （best-effort 真问一次 git remote，与 matches 的兜底同一档超时）；解析不出来回 null。

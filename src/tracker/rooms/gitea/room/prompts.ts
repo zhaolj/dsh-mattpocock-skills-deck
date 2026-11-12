@@ -45,9 +45,34 @@ const teaCommandMapCopy = {
   en: 'Issue tracking in this project goes through the Gitea CLI (tea); the command map: create an issue with tea issues create; list issues with tea issues ls (aka tea issues list); view one issue with tea issues <number>; view comments with tea issues <number> comments; close an issue with tea issues close <number>; add labels or assignees with tea issues edit <number> --add-labels/--add-assignees; manage labels with tea labels create / tea labels ls (aka tea labels list). tea offers no commands for parent/child splitting or blocking — do not invent syntax.',
 }
 
+/**
+ * preflight 选中的执行器（票 #21）：'gt' 或 'tea'，缺省 'tea'。
+ * 为什么放模块级变量而不是构造期传参：prompts 是静态导出的常量对象，
+ * 客户端投影（ui-description）在读属性时才求值，getter 注入是唯一的活口——
+ * preflight 探测完写进来，注入提示词时读出去，键名与取值类型不变。
+ * 这里只存「选了谁」；gt/tea 两套完整文案（#24）会各自成表，与本状态解耦。
+ */
+export type GiteaExecutorCli = 'gt' | 'tea'
+let selectedExecutorCli: GiteaExecutorCli = 'tea'
+
+/** preflight 探测结束后写入选中结果；只收 'gt' | 'tea'，写别的值编译不过。 */
+export function setSelectedExecutor(cli: GiteaExecutorCli): void {
+  selectedExecutorCli = cli
+}
+
+/** 读当前选中的执行器（测试与诊断用；提示词注入经 commandVocabulary.cli 的 getter 走这里）。 */
+export function selectedExecutor(): GiteaExecutorCli {
+  return selectedExecutorCli
+}
+
 /** 这一房交给契约注入与修复指引的全部提示文案；commandVocabulary 的键名是对外契约，不能改名。 */
 export const prompts = {
-  commandVocabulary: { cli: 'tea', cliBrand: 'Gitea' },
+  // cli 是 getter：每次投影/注入时读 preflight 刚写进来的选中值（#21）。
+  // 什么都没探测过时维持 'tea'，与旧行为一致（老会话没跑过新 preflight 也不变味）。
+  commandVocabulary: {
+    get cli(): GiteaExecutorCli { return selectedExecutorCli },
+    cliBrand: 'Gitea',
+  },
   cliInstall: { ...teaInstallCopy },
   cliLogin: { ...teaLoginCopy },
   cliAuthFix: { ...teaAuthFixCopy },
